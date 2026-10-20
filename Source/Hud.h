@@ -600,4 +600,47 @@ private:
     ParameterAttachment attach;
     bool on = true, hover = false;
 };
+
+//==============================================================================
+// Large section switch: LED plus "ON / OFF" caption with the active word lit.
+class PowerToggle : public Component
+{
+public:
+    PowerToggle (RangedAudioParameter& p, String title, bool sequencerStyle = false)
+        : seqStyle (sequencerStyle), attach (p, [this] (float v) { on = v > 0.5f; repaint(); if (onChange) onChange(); }, nullptr)
+    {
+        attach.sendInitialUpdate();
+        setTitle (title);
+        setMouseCursor (MouseCursor::PointingHandCursor);
+    }
+
+    bool isOn() const noexcept { return on; }
+    std::function<void()> onChange;
+
+    void paint (Graphics& g) override
+    {
+        const auto b = getLocalBounds().toFloat();
+        g.setColour (Colour (0xff0b0908)); g.fillRoundedRectangle (b.reduced (1.0f), 6.0f);
+        g.setColour ((seqStyle ? Colour (0xff6a4cff) : col::line).withAlpha (hover ? 0.8f : 0.4f)); g.drawRoundedRectangle (b.reduced (1.5f), 6.0f, 1.0f);
+        drawLed (g, Rectangle<float> (16.0f, 16.0f).withCentre ({ 17.0f, b.getCentreY() }), on);
+        const Colour lit = seqStyle ? Colour (0xffc2b4ff) : col::yellow, dim (0xff6e5238);
+        g.setFont (label (16.0f, 0.12f, true));
+        auto word = [&] (const String& s, Rectangle<float> r, bool active)
+        {
+            if (active) glowText (g, s, r, Justification::centredLeft, lit, 0.3f);
+            else { g.setColour (dim); g.drawText (s, r, Justification::centredLeft, false); }
+        };
+        word ("ON", { 34.0f, 0.0f, 26.0f, b.getHeight() }, on);
+        g.setColour (dim); g.drawText ("/", Rectangle<float> (57.0f, 0.0f, 10.0f, b.getHeight()), Justification::centred, false);
+        word ("OFF", { 68.0f, 0.0f, 32.0f, b.getHeight() }, ! on);
+    }
+    void mouseEnter (const MouseEvent&) override { hover = true; repaint(); }
+    void mouseExit (const MouseEvent&) override { hover = false; repaint(); }
+    void mouseDown (const MouseEvent&) override { attach.setValueAsCompleteGesture (on ? 0.0f : 1.0f); }
+
+private:
+    bool seqStyle;
+    ParameterAttachment attach;
+    bool on = true, hover = false;
+};
 }

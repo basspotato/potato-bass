@@ -799,7 +799,7 @@ public:
         look::rampMode() = 1;
         const int cur = curStep.load();
         const float cw = (float) getWidth() / 16.f;
-        const juce::Colour deepBlue(0xff2b4cf0), deepPurple(0xff8a2fe0), deepMagenta(0xffe0259e);
+        const juce::Colour deepBlue(0xff2b4cf0), deepPurple(0xff8a2fe0), deepMagenta = look::col::yellow;
 
         for (int i = 0; i < 16; ++i)
         {

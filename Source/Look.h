@@ -83,15 +83,15 @@ namespace col
     }
 
     // Orange -> yellow light ramp used across the whole console (0 = orange, 1 = yellow)
-    // Palette mode: 0 = orange -> yellow console light, 1 = deep blue -> deep purple -> deep magenta (sequencer)
+    // Palette mode: 0 = orange -> yellow console light, 1 = deep blue -> deep purple -> yellow (sequencer)
     inline int& rampMode() { static int m = 0; return m; }
     inline Colour ramp (float t)
     {
         t = jlimit (0.0f, 1.0f, t);
         if (rampMode() == 1)
         {
-            const Colour blue (0xff2b4cf0), purple (0xff8a2fe0), magenta (0xffe0259e);
-            return t < 0.5f ? blue.interpolatedWith (purple, t * 2.0f) : purple.interpolatedWith (magenta, (t - 0.5f) * 2.0f);
+            const Colour blue (0xff2b4cf0), purple (0xff8a2fe0);
+            return t < 0.5f ? blue.interpolatedWith (purple, t * 2.0f) : purple.interpolatedWith (col::yellow, (t - 0.5f) * 2.0f);
         }
         return col::orange.interpolatedWith (col::yellow, t);
     }
