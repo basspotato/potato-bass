@@ -1,6 +1,7 @@
 #pragma once
 #include "PluginProcessor.h"
 #include "Displays.h"
+#include "Hud.h"
 
 struct PanelBase : juce::Component
 {
@@ -89,7 +90,7 @@ public:
         PanelBase::resized();
         auto b = getLocalBounds().reduced(10);
         b.removeFromTop(20);
-        auto knobs = b.removeFromBottom(90);
+        auto knobs = b.removeFromBottom(104);
         display.setBounds(b.withTrimmedBottom(6));
         const int w = knobs.getWidth() / 4;
         kA.setBounds(knobs.removeFromLeft(w));
@@ -124,7 +125,7 @@ public:
         auto top = b.removeFromTop(24);
         top.removeFromRight(30);
         combo.setBounds(top.removeFromRight(130));
-        auto knobs = b.removeFromBottom(90);
+        auto knobs = b.removeFromBottom(104);
         display.setBounds(b.withTrimmedBottom(6));
         const int w = knobs.getWidth() / 4;
         kCutoff.setBounds(knobs.removeFromLeft(w));
@@ -195,7 +196,7 @@ public:
         PanelBase::resized();
         auto b = getLocalBounds().reduced(10);
         b.removeFromTop(20);
-        auto knobs = b.removeFromBottom(90);
+        auto knobs = b.removeFromBottom(100);
         display.setBounds(b.withTrimmedBottom(6));
         const int w = knobs.getWidth() / 7;
         for (auto* k : { &kThresh, &kRatio, &kAttack, &kRelease, &kKnee, &kMakeup })
@@ -231,11 +232,11 @@ public:
         auto b = getLocalBounds().reduced(10);
         b.removeFromTop(20);
         auto combos = b.removeFromLeft(130);
-        shape.setBounds(combos.removeFromTop(24));
-        combos.removeFromTop(4);
-        rate.setBounds(combos.removeFromTop(24));
-        combos.removeFromTop(4);
-        target.setBounds(combos.removeFromTop(24));
+        shape.setBounds(combos.removeFromTop(26));
+        combos.removeFromTop(5);
+        rate.setBounds(combos.removeFromTop(26));
+        combos.removeFromTop(5);
+        target.setBounds(combos.removeFromTop(26));
         b.removeFromLeft(10);
         display.setBounds(b.removeFromLeft(b.getWidth() - 220));
         b.removeFromLeft(10);
@@ -285,23 +286,23 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> rateAtt;
 };
 
-class PotatoBassEditor : public juce::AudioProcessorEditor
+class PanelContent;
+
+// The editor hosts one fixed-size hardware panel and scales it to the window.
+class PotatoBassEditor : public juce::AudioProcessorEditor, private juce::Timer
 {
 public:
     explicit PotatoBassEditor(PotatoBassProcessor&);
-    ~PotatoBassEditor() override { setLookAndFeel(nullptr); }
+    ~PotatoBassEditor() override;
 
     void paint(juce::Graphics&) override;
     void resized() override;
 
+    static constexpr int panelW = 1200, panelH = 1188;
+
 private:
+    void timerCallback() override;
+
     PotatoLookAndFeel laf;
-    HSlider master;
-    OscPanel osc1, osc2;
-    EnvPanel env;
-    FilterPanel filter;
-    DistPanel dist;
-    CompPanel comp;
-    LfoPanel lfo;
-    SeqPanel seq;
+    std::unique_ptr<PanelContent> panel;
 };

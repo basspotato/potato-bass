@@ -4,6 +4,7 @@
 #include <atomic>
 #include <vector>
 #include "Params.h"
+#include "Presets.h"
 #include "Wavetables.h"
 
 class PotatoBassProcessor : public juce::AudioProcessor
@@ -38,6 +39,14 @@ public:
     juce::AudioProcessorValueTreeState apvts;
     std::atomic<float> grMeter { 0.f };
     std::atomic<int> seqStep { -1 };
+
+    void loadPreset(int index, bool asUserGesture = true);
+    bool presetIsModified() const;
+    juce::MidiKeyboardState keyboardState;
+    std::atomic<int> currentPreset { 1 };
+    std::atomic<float> meterRms { 0.f };
+    std::atomic<int> heldNotes { 0 };
+    std::atomic<unsigned> noteOnCounter { 0 };
 
 private:
     void applyEffects(juce::AudioBuffer<float>&);

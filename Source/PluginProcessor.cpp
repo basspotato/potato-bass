@@ -54,6 +54,36 @@ PotatoBassProcessor::PotatoBassProcessor()
         stPit[i] = apvts.getRawParameterValue(stepId("seq_pit", i));
         stVel[i] = apvts.getRawParameterValue(stepId("seq_vel", i));
     }
+    loadPreset(currentPreset.load(), false);
+}
+
+void PotatoBassProcessor::loadPreset(int index, bool asUserGesture)
+{
+    index = juce::jlimit(0, pb::numPresets - 1, index);
+    currentPreset = index;
+    const auto& p = pb::presets[index];
+
+    auto set = [asUserGesture](juce::RangedAudioParameter* prm, float value)
+    {
+        if (prm == nullptr) return;
+        if (asUserGesture) prm->beginChangeGesture();
+        prm->setValueNotifyingHost(prm->convertTo0to1(value));
+        if (asUserGesture) prm->endChangeGesture();
+    };
+    for (int i = 0; i < pb::numParams; ++i)
+        set(apvts.getParameter(pb::presetIds[i]), p.v[i]);
+    for (auto* id : { ID::o1On, ID::o2On, ID::eOn, ID::fOn, ID::dOn, ID::cOn, ID::lOn })
+        set(apvts.getParameter(id), 1.f);
+}
+
+bool PotatoBassProcessor::presetIsModified() const
+{
+    const auto& p = pb::presets[currentPreset.load()];
+    for (int i = 0; i < pb::numParams; ++i)
+        if (auto* prm = apvts.getParameter(pb::presetIds[i]))
+            if (std::abs(prm->getValue() - prm->convertTo0to1(p.v[i])) > 0.002f)
+                return true;
+    return false;
 }
 
 void PotatoBassProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
@@ -95,6 +125,9 @@ void PotatoBassProcessor::runSequencer(juce::MidiBuffer& midi, int n, double p0,
 {
     seqMidi.clear();
     const bool on = sOn->load() > 0.5f;
+    for (const auto meta : midi)
+        if (meta.getMessage().isNoteOn())
+            noteOnCounter.fetch_add(1);
 
     for (const auto meta : midi)
     {
@@ -171,6 +204,7 @@ void PotatoBassProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
 {
     juce::ScopedNoDenormals noDenormals;
     const int n = buffer.getNumSamples();
+    keyboardState.processNextMidiBuffer(midi, 0, n, true);
 
     double bpm = 120.0, p0 = freePpq;
     if (auto* ph = getPlayHead())
@@ -231,13 +265,17 @@ void PotatoBassProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
     {
         float* L = buffer.getWritePointer(0);
         float* R = buffer.getWritePointer(1);
+        float sumSq = 0.f;
         for (int i = 0; i < n; ++i)
         {
             const float g = masterSm.getNextValue();
             L[i] *= g;
             R[i] *= g;
+            sumSq += L[i] * L[i];
         }
+        meterRms = std::sqrt(sumSq / (float) juce::jmax(1, n));
     }
+    heldNotes = heldCount;
 }
 
 void PotatoBassProcessor::applyEffects(juce::AudioBuffer<float>& buffer)
@@ -353,7 +391,9 @@ juce::AudioProcessorEditor* PotatoBassProcessor::createEditor() { return new Pot
 
 void PotatoBassProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
-    if (auto xml = apvts.copyState().createXml())
+    auto state = apvts.copyState();
+    state.setProperty("preset", currentPreset.load(), nullptr);
+    if (auto xml = state.createXml())
         copyXmlToBinary(*xml, destData);
 }
 
@@ -361,7 +401,11 @@ void PotatoBassProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
     if (auto xml = getXmlFromBinary(data, sizeInBytes))
         if (xml->hasTagName(apvts.state.getType()))
-            apvts.replaceState(juce::ValueTree::fromXml(*xml));
+        {
+            auto tree = juce::ValueTree::fromXml(*xml);
+            currentPreset = juce::jlimit(0, pb::numPresets - 1, (int) tree.getProperty("preset", 1));
+            apvts.replaceState(tree);
+        }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new PotatoBassProcessor(); }

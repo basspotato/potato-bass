@@ -23,9 +23,16 @@ juce_add_plugin(PotatoBass
     PRODUCT_NAME "Potato Bass"
     COPY_PLUGIN_AFTER_BUILD FALSE)
 
+juce_add_binary_data(PotatoBassFonts SOURCES
+    Resources/Fonts/BarlowCondensed-SemiBold.ttf
+    Resources/Fonts/BarlowCondensed-Bold.ttf
+    Resources/Fonts/ShareTechMono-Regular.ttf)
+
 target_sources(PotatoBass PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp)
+
+target_include_directories(PotatoBass PRIVATE Source)
 
 target_compile_definitions(PotatoBass PUBLIC
     JUCE_WEB_BROWSER=0
@@ -36,6 +43,7 @@ target_compile_options(PotatoBass PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/fp:fast>)
 
 target_link_libraries(PotatoBass
     PRIVATE
+        PotatoBassFonts
         juce::juce_audio_utils
         juce::juce_dsp
     PUBLIC
