@@ -4,29 +4,43 @@
 
 struct PanelBase : juce::Component
 {
-    explicit PanelBase(juce::String t) : title(std::move(t)) {}
-
-    void paint(juce::Graphics& g) override
+    explicit PanelBase(juce::String t, juce::AudioProcessorValueTreeState* s = nullptr, const char* onId = nullptr)
+        : title(std::move(t))
     {
-        const auto b = getLocalBounds().toFloat();
-        g.setColour(theme::panel);
-        g.fillRoundedRectangle(b, 8.f);
-        g.setColour(theme::border);
-        g.drawRoundedRectangle(b.reduced(0.5f), 8.f, 1.f);
-        g.setColour(theme::cyan);
-        g.setFont(juce::Font(juce::FontOptions(13.f, juce::Font::bold)));
-        g.drawText(title, 12, 6, 200, 18, juce::Justification::left);
+        if (s != nullptr)
+        {
+            attachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(*s, onId, power);
+            power.onStateChange = [this] { repaint(); };
+            hasPower = true;
+            addAndMakeVisible(power);
+        }
     }
 
+    void paint(juce::Graphics& g) override { theme::paintPanel(g, getLocalBounds().toFloat(), title); }
+
+    void paintOverChildren(juce::Graphics& g) override
+    {
+        if (!hasPower || power.getToggleState())
+            return;
+        g.excludeClipRegion(power.getBounds());
+        g.setColour(theme::bg.withAlpha(0.6f));
+        g.fillRoundedRectangle(getLocalBounds().toFloat().reduced(1.f), 7.f);
+    }
+
+    void resized() override { power.setBounds(getWidth() - 36, 6, 24, 20); }
+
     juce::String title;
+    PowerButton power;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> attachment;
+    bool hasPower = false;
 };
 
 class OscPanel : public PanelBase
 {
 public:
     OscPanel(PotatoBassProcessor& p, const juce::String& name, const char* tbl, const char* oct,
-             const char* fine, const char* lvl)
-        : PanelBase(name), wave(p.wavetables, p.apvts, tbl),
+             const char* fine, const char* lvl, const char* on)
+        : PanelBase(name, &p.apvts, on), wave(p.wavetables, p.apvts, tbl),
           kOct(p.apvts, oct, "Octave"), kFine(p.apvts, fine, "Fine"), kLevel(p.apvts, lvl, "Level")
     {
         combo.addItemList(Wavetables::names(), 1);
@@ -37,6 +51,7 @@ public:
 
     void resized() override
     {
+        PanelBase::resized();
         auto b = getLocalBounds().reduced(10);
         b.removeFromTop(20);
         auto left = b.removeFromLeft(190);
@@ -61,7 +76,7 @@ class EnvPanel : public PanelBase
 {
 public:
     explicit EnvPanel(PotatoBassProcessor& p)
-        : PanelBase("AMP ENVELOPE"), display(p.apvts),
+        : PanelBase("AMP ENVELOPE", &p.apvts, ID::eOn), display(p.apvts),
           kA(p.apvts, ID::attack, "Attack"), kD(p.apvts, ID::decay, "Decay"),
           kS(p.apvts, ID::sustain, "Sustain"), kR(p.apvts, ID::release, "Release")
     {
@@ -71,6 +86,7 @@ public:
 
     void resized() override
     {
+        PanelBase::resized();
         auto b = getLocalBounds().reduced(10);
         b.removeFromTop(20);
         auto knobs = b.removeFromBottom(90);
@@ -91,7 +107,7 @@ class FilterPanel : public PanelBase
 {
 public:
     explicit FilterPanel(PotatoBassProcessor& p)
-        : PanelBase("FILTER"), display(p.apvts),
+        : PanelBase("FILTER", &p.apvts, ID::fOn), display(p.apvts),
           kCutoff(p.apvts, ID::fCutoff, "Cutoff"), kRes(p.apvts, ID::fRes, "Resonance"),
           kVel(p.apvts, ID::fVel, "Velocity"), kMix(p.apvts, ID::fMix, "Mix")
     {
@@ -103,8 +119,10 @@ public:
 
     void resized() override
     {
+        PanelBase::resized();
         auto b = getLocalBounds().reduced(10);
         auto top = b.removeFromTop(24);
+        top.removeFromRight(30);
         combo.setBounds(top.removeFromRight(130));
         auto knobs = b.removeFromBottom(90);
         display.setBounds(b.withTrimmedBottom(6));
@@ -126,7 +144,7 @@ class DistPanel : public PanelBase
 {
 public:
     explicit DistPanel(PotatoBassProcessor& p)
-        : PanelBase("DISTORTION"), display(p.apvts),
+        : PanelBase("DISTORTION", &p.apvts, ID::dOn), display(p.apvts),
           drive(p.apvts, ID::dDrive, "Drive"),
           gain(p.apvts, ID::dGain, "Gain"), release(p.apvts, ID::dRelease, "Release")
     {
@@ -138,12 +156,14 @@ public:
 
     void resized() override
     {
+        PanelBase::resized();
         auto b = getLocalBounds().reduced(10);
         auto top = b.removeFromTop(24);
+        top.removeFromRight(30);
         combo.setBounds(top.removeFromRight(130));
         display.setBounds(b.removeFromLeft(190));
         b.removeFromLeft(12);
-        drive.setBounds(b.removeFromTop(110));
+        drive.setBounds(b.removeFromTop(100));
         b.removeFromTop(8);
         gain.setBounds(b.removeFromTop(34));
         release.setBounds(b.removeFromTop(34));
@@ -161,7 +181,7 @@ class CompPanel : public PanelBase
 {
 public:
     explicit CompPanel(PotatoBassProcessor& p)
-        : PanelBase("COMPRESSOR"), display(p.apvts, p.grMeter),
+        : PanelBase("COMPRESSOR", &p.apvts, ID::cOn), display(p.apvts, p.grMeter),
           kThresh(p.apvts, ID::cThresh, "Thresh"), kRatio(p.apvts, ID::cRatio, "Ratio"),
           kAttack(p.apvts, ID::cAttack, "Attack"), kRelease(p.apvts, ID::cRelease, "Release"),
           kKnee(p.apvts, ID::cKnee, "Knee"), kMakeup(p.apvts, ID::cMakeup, "Makeup"), kMix(p.apvts, ID::cMix, "Mix")
@@ -172,6 +192,7 @@ public:
 
     void resized() override
     {
+        PanelBase::resized();
         auto b = getLocalBounds().reduced(10);
         b.removeFromTop(20);
         auto knobs = b.removeFromBottom(90);
@@ -187,6 +208,83 @@ private:
     Knob kThresh, kRatio, kAttack, kRelease, kKnee, kMakeup, kMix;
 };
 
+class LfoPanel : public PanelBase
+{
+public:
+    explicit LfoPanel(PotatoBassProcessor& p)
+        : PanelBase("LFO / DUCK", &p.apvts, ID::lOn), display(p.apvts),
+          kDepth(p.apvts, ID::lDepth, "Depth"), kCurve(p.apvts, ID::lCurve, "Curve")
+    {
+        shape.addItemList(lfoShapeNames, 1);
+        rate.addItemList(syncNames, 1);
+        target.addItemList(lfoTargetNames, 1);
+        shapeAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.apvts, ID::lShape, shape);
+        rateAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.apvts, ID::lRate, rate);
+        targetAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.apvts, ID::lTarget, target);
+        for (auto* c : std::initializer_list<juce::Component*> { &shape, &rate, &target, &display, &kDepth, &kCurve })
+            addAndMakeVisible(c);
+    }
+
+    void resized() override
+    {
+        PanelBase::resized();
+        auto b = getLocalBounds().reduced(10);
+        b.removeFromTop(20);
+        auto combos = b.removeFromLeft(130);
+        shape.setBounds(combos.removeFromTop(24));
+        combos.removeFromTop(4);
+        rate.setBounds(combos.removeFromTop(24));
+        combos.removeFromTop(4);
+        target.setBounds(combos.removeFromTop(24));
+        b.removeFromLeft(10);
+        display.setBounds(b.removeFromLeft(b.getWidth() - 220));
+        b.removeFromLeft(10);
+        kDepth.setBounds(b.removeFromLeft(b.getWidth() / 2));
+        kCurve.setBounds(b);
+    }
+
+private:
+    juce::ComboBox shape, rate, target;
+    LfoDisplay display;
+    Knob kDepth, kCurve;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> shapeAtt, rateAtt, targetAtt;
+};
+
+class SeqPanel : public PanelBase
+{
+public:
+    explicit SeqPanel(PotatoBassProcessor& p)
+        : PanelBase("SEQUENCER"), on(p.apvts, ID::sOn, "On"), display(p.apvts, p.seqStep), gate(p.apvts, ID::sGate, "Gate")
+    {
+        rate.addItemList(seqRateNames, 1);
+        rateAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.apvts, ID::sRate, rate);
+        for (auto* c : std::initializer_list<juce::Component*> { &on, &rate, &gate, &display })
+            addAndMakeVisible(c);
+    }
+
+    void resized() override
+    {
+        PanelBase::resized();
+        auto b = getLocalBounds().reduced(10);
+        auto top = b.removeFromTop(24);
+        top.removeFromLeft(100);
+        on.setBounds(top.removeFromLeft(60));
+        top.removeFromLeft(10);
+        rate.setBounds(top.removeFromLeft(80));
+        top.removeFromLeft(20);
+        gate.setBounds(top.removeFromLeft(260));
+        b.removeFromTop(4);
+        display.setBounds(b);
+    }
+
+private:
+    ToggleBtn on;
+    juce::ComboBox rate;
+    SeqDisplay display;
+    HSlider gate;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> rateAtt;
+};
+
 class PotatoBassEditor : public juce::AudioProcessorEditor
 {
 public:
@@ -198,9 +296,12 @@ public:
 
 private:
     PotatoLookAndFeel laf;
+    HSlider master;
     OscPanel osc1, osc2;
     EnvPanel env;
     FilterPanel filter;
     DistPanel dist;
     CompPanel comp;
+    LfoPanel lfo;
+    SeqPanel seq;
 };

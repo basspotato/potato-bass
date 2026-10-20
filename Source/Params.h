@@ -33,6 +33,22 @@ namespace ID
     inline constexpr const char* cKnee     = "comp_knee";
     inline constexpr const char* cMakeup   = "comp_makeup";
     inline constexpr const char* cMix      = "comp_mix";
+    inline constexpr const char* o1On     = "osc1_on";
+    inline constexpr const char* o2On     = "osc2_on";
+    inline constexpr const char* eOn      = "env_on";
+    inline constexpr const char* fOn      = "filt_on";
+    inline constexpr const char* dOn      = "dist_on";
+    inline constexpr const char* cOn      = "comp_on";
+    inline constexpr const char* lOn      = "lfo_on";
+    inline constexpr const char* master    = "master_gain";
+    inline constexpr const char* lShape    = "lfo_shape";
+    inline constexpr const char* lRate     = "lfo_rate";
+    inline constexpr const char* lTarget   = "lfo_target";
+    inline constexpr const char* lDepth    = "lfo_depth";
+    inline constexpr const char* lCurve    = "lfo_curve";
+    inline constexpr const char* sOn       = "seq_on";
+    inline constexpr const char* sRate     = "seq_rate";
+    inline constexpr const char* sGate     = "seq_gate";
 }
 
 // Filter types: LP12, LP24, HP12, HP24, BP, Notch
@@ -80,6 +96,39 @@ inline float compCurve(float inDb, float thr, float ratio, float knee)
     }
     return thr + over / ratio;
 }
+
+inline const juce::StringArray lfoShapeNames { "Duck", "Sine", "Triangle", "Saw Down", "Square" };
+inline const juce::StringArray lfoTargetNames { "Volume", "Cutoff" };
+inline const juce::StringArray syncNames { "2 Bars", "1 Bar", "1/2", "1/4", "1/4D", "1/4T", "1/8", "1/8D", "1/8T", "1/16", "1/16D", "1/16T", "1/32" };
+inline constexpr double syncBeats[] { 8.0, 4.0, 2.0, 1.0, 1.5, 2.0 / 3.0, 0.5, 0.75, 1.0 / 3.0, 0.25, 0.375, 1.0 / 6.0, 0.125 };
+inline const juce::StringArray seqRateNames { "1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32" };
+inline constexpr double seqBeats[] { 1.0, 0.5, 1.0 / 3.0, 0.25, 1.0 / 6.0, 0.125 };
+
+inline float lfoCurveExp(float curve) { return std::pow(4.f, 2.f * curve - 1.f); }
+
+// LFO output 0..1 for phase 0..1, bent by expo (1 = unbent).
+inline float lfoShape(int shape, float p, float expo)
+{
+    float v;
+    switch (shape)
+    {
+        case 1:  v = 0.5f - 0.5f * std::cos(juce::MathConstants<float>::twoPi * p); break;
+        case 2:  v = p < 0.5f ? 2.f * p : 2.f - 2.f * p; break;
+        case 3:  v = 1.f - p; break;
+        case 4:  v = p < 0.5f ? 0.f : 1.f; break;
+        default: v = p; break;
+    }
+    return expo == 1.f ? v : std::pow(v, expo);
+}
+
+inline juce::String stepId(const char* prefix, int i) { return juce::String(prefix) + "_" + juce::String(i + 1); }
+
+// Shared from processor to voices: LFO samples for the current block when the LFO targets filter cutoff.
+struct ModBus
+{
+    const float* lfo = nullptr;
+    float cutOct = 0.f;
+};
 
 inline juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
 {
@@ -135,6 +184,37 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout
     layout.add(std::make_unique<AudioParameterFloat>(ParameterID { ID::cKnee, 1 }, "Comp Knee", NormalisableRange<float>(0.f, 24.f, 0.1f), 6.f, fAttr(dbStr)));
     layout.add(std::make_unique<AudioParameterFloat>(ParameterID { ID::cMakeup, 1 }, "Comp Makeup", NormalisableRange<float>(0.f, 24.f, 0.1f), 0.f, fAttr(dbStr)));
     layout.add(std::make_unique<AudioParameterFloat>(ParameterID { ID::cMix, 1 }, "Comp Mix", NormalisableRange<float>(0.f, 1.f, 0.001f), 1.f));
+
+    layout.add(std::make_unique<AudioParameterBool>(ParameterID { ID::o1On, 1 }, "Osc1 On", true));
+    layout.add(std::make_unique<AudioParameterBool>(ParameterID { ID::o2On, 1 }, "Osc2 On", true));
+    layout.add(std::make_unique<AudioParameterBool>(ParameterID { ID::eOn, 1 }, "Env On", true));
+    layout.add(std::make_unique<AudioParameterBool>(ParameterID { ID::fOn, 1 }, "Filter On", true));
+    layout.add(std::make_unique<AudioParameterBool>(ParameterID { ID::dOn, 1 }, "Dist On", true));
+    layout.add(std::make_unique<AudioParameterBool>(ParameterID { ID::cOn, 1 }, "Comp On", true));
+    layout.add(std::make_unique<AudioParameterBool>(ParameterID { ID::lOn, 1 }, "LFO On", true));
+    layout.add(std::make_unique<AudioParameterFloat>(ParameterID { ID::master, 1 }, "Master", skewed(-60.f, 6.f, -14.f), 0.f,
+                                                     fAttr([](float v, int) { return v <= -59.9f ? String("-inf") : String(v, 1) + " dB"; })));
+
+    layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ID::lShape, 1 }, "LFO Shape", lfoShapeNames, 0));
+    layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ID::lRate, 1 }, "LFO Rate", syncNames, 3));
+    layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ID::lTarget, 1 }, "LFO Target", lfoTargetNames, 0));
+    layout.add(std::make_unique<AudioParameterFloat>(ParameterID { ID::lDepth, 1 }, "LFO Depth", NormalisableRange<float>(0.f, 1.f, 0.001f), 0.f));
+    layout.add(std::make_unique<AudioParameterFloat>(ParameterID { ID::lCurve, 1 }, "LFO Curve", NormalisableRange<float>(0.f, 1.f, 0.001f), 0.6f));
+
+    layout.add(std::make_unique<AudioParameterBool>(ParameterID { ID::sOn, 1 }, "Seq On", false));
+    layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ID::sRate, 1 }, "Seq Rate", seqRateNames, 3));
+    layout.add(std::make_unique<AudioParameterFloat>(ParameterID { ID::sGate, 1 }, "Seq Gate", NormalisableRange<float>(0.05f, 1.f, 0.01f), 0.6f,
+                                                     AudioParameterFloatAttributes().withStringFromValueFunction([](float v, int) { return String(roundToInt(v * 100.f)) + "%"; })));
+
+    const bool defOn[16] { 1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0 };
+    const int defPit[16] { 0, 0, 12, 0, 0, 7, 0, 3, 0, 0, 12, 0, 0, 5, 3, 0 };
+    for (int i = 0; i < 16; ++i)
+    {
+        const String n = "Step " + String(i + 1);
+        layout.add(std::make_unique<AudioParameterBool>(ParameterID { stepId("seq_on", i), 1 }, n + " On", defOn[i]));
+        layout.add(std::make_unique<AudioParameterInt>(ParameterID { stepId("seq_pit", i), 1 }, n + " Pitch", -12, 12, defPit[i]));
+        layout.add(std::make_unique<AudioParameterFloat>(ParameterID { stepId("seq_vel", i), 1 }, n + " Velocity", NormalisableRange<float>(0.f, 1.f, 0.01f), i == 0 ? 1.f : 0.8f));
+    }
 
     return layout;
 }

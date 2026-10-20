@@ -37,14 +37,25 @@ public:
     Wavetables wavetables;
     juce::AudioProcessorValueTreeState apvts;
     std::atomic<float> grMeter { 0.f };
+    std::atomic<int> seqStep { -1 };
 
 private:
     void applyEffects(juce::AudioBuffer<float>&);
     void processChunk(float* L, float* R, int n);
+    void runSequencer(juce::MidiBuffer& midi, int n, double p0, double bpb);
 
+    ModBus bus;
     juce::Synthesiser synth;
+    juce::MidiBuffer seqMidi;
+    std::vector<float> lfoBuf;
+    std::atomic<float> *lShape = nullptr, *lRate = nullptr, *lTarget = nullptr, *lDepth = nullptr, *lCurve = nullptr;
+    std::atomic<float> *master = nullptr, *dOn = nullptr, *cOn = nullptr, *lOn = nullptr, *sOn = nullptr, *sRate = nullptr, *sGate = nullptr;
+    std::atomic<float> *stOn[16] {}, *stPit[16] {}, *stVel[16] {};
+    int held[128] {}, heldCount = 0, seqNote = -1;
+    long long lastAbsStep = -1;
+    double freePpq = 0.0;
     juce::dsp::Oversampling<float> oversampling { 2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, false };
-    juce::SmoothedValue<float> driveSm, outSm, makeupSm, mixSm;
+    juce::SmoothedValue<float> driveSm, outSm, makeupSm, mixSm, masterSm;
     std::vector<float> dgBuf, ogBuf;
 
     std::atomic<float> *dType = nullptr, *dDrive = nullptr, *dGain = nullptr, *dRelease = nullptr;

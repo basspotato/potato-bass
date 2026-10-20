@@ -53,7 +53,7 @@ private:
 class BassVoice : public juce::SynthesiserVoice
 {
 public:
-    BassVoice(juce::AudioProcessorValueTreeState& s, const Wavetables& w) : wt(w)
+    BassVoice(juce::AudioProcessorValueTreeState& s, const Wavetables& w, const ModBus& m) : wt(w), bus(m)
     {
         osc1Table = s.getRawParameterValue(ID::osc1Table);
         osc1Oct   = s.getRawParameterValue(ID::osc1Oct);
@@ -72,6 +72,10 @@ public:
         fRes      = s.getRawParameterValue(ID::fRes);
         fVel      = s.getRawParameterValue(ID::fVel);
         fMix      = s.getRawParameterValue(ID::fMix);
+        o1On = s.getRawParameterValue(ID::o1On);
+        o2On = s.getRawParameterValue(ID::o2On);
+        eOn = s.getRawParameterValue(ID::eOn);
+        fOn = s.getRawParameterValue(ID::fOn);
     }
 
     bool canPlaySound(juce::SynthesiserSound* s) override { return dynamic_cast<BassSound*>(s) != nullptr; }
@@ -98,7 +102,7 @@ public:
             snap = true;
         }
 
-        adsr.setParameters({ attack->load(), decay->load(), sustain->load(), release->load() });
+        setEnv();
         adsr.noteOn();
     }
 
@@ -123,10 +127,10 @@ public:
         }
 
         const float sr = (float) getSampleRate();
-        adsr.setParameters({ attack->load(), decay->load(), sustain->load(), release->load() });
+        setEnv();
 
         const int t1 = (int) osc1Table->load(), t2 = (int) osc2Table->load();
-        const float tL1 = osc1Level->load(), tL2 = osc2Level->load();
+        const float tL1 = o1On->load() > 0.5f ? osc1Level->load() : 0.f, tL2 = o2On->load() > 0.5f ? osc2Level->load() : 0.f;
         const float tInc1 = baseFreq * std::exp2(osc1Oct->load() + osc1Fine->load() / 1200.f) / sr;
         const float tInc2 = baseFreq * std::exp2(osc2Oct->load() + osc2Fine->load() / 1200.f) / sr;
 
@@ -134,10 +138,10 @@ public:
         const int mode = filterMode(type);
         const bool twoStage = filterTwoStage(type);
         const float tRes = fRes->load();
-        const float tMix = fMix->load();
+        const float tMix = fOn->load() > 0.5f ? fMix->load() : 0.f;
         const float velOct = fVel->load() * (vel * 2.f - 1.f) * 3.f;
-        const float tCut = juce::jlimit(std::log2(20.f), std::log2(std::min(20000.f, 0.45f * sr)),
-                                        std::log2(fCutoff->load()) + velOct);
+        const float minCut = std::log2(20.f), maxCut = std::log2(std::min(20000.f, 0.45f * sr));
+        const float tCut = juce::jlimit(minCut, maxCut, std::log2(fCutoff->load()) + velOct);
 
         if (snap)
         {
@@ -161,7 +165,8 @@ public:
             sMix += tickCoef * (tMix - sMix);
             sCut += tickCoef * (tCut - sCut);
 
-            const float g = std::tan(pi * std::exp2(sCut) / sr);
+            const float lfoOct = bus.lfo != nullptr ? (bus.lfo[start + i] - 1.f) * bus.cutOct : 0.f;
+            const float g = std::tan(pi * std::exp2(juce::jlimit(minCut, maxCut, sCut + lfoOct)) / sr);
             const float k = resToK(sRes);
             filt1.setCoefficients(g, k);
             filt2.setCoefficients(g, k);
@@ -199,14 +204,23 @@ public:
 private:
     static constexpr int kTick = 16;
 
+    void setEnv()
+    {
+        if (eOn->load() > 0.5f)
+            adsr.setParameters({ attack->load(), decay->load(), sustain->load(), release->load() });
+        else
+            adsr.setParameters({ 0.002f, 0.f, 1.f, 0.01f });
+    }
+
     const Wavetables& wt;
+    const ModBus& bus;
     juce::ADSR adsr;
     StateVariable filt1, filt2;
 
     std::atomic<float> *osc1Table = nullptr, *osc1Oct = nullptr, *osc1Fine = nullptr, *osc1Level = nullptr;
     std::atomic<float> *osc2Table = nullptr, *osc2Oct = nullptr, *osc2Fine = nullptr, *osc2Level = nullptr;
     std::atomic<float> *attack = nullptr, *decay = nullptr, *sustain = nullptr, *release = nullptr;
-    std::atomic<float> *fType = nullptr, *fCutoff = nullptr, *fRes = nullptr, *fVel = nullptr, *fMix = nullptr;
+    std::atomic<float> *o1On = nullptr, *o2On = nullptr, *eOn = nullptr, *fOn = nullptr, *fType = nullptr, *fCutoff = nullptr, *fRes = nullptr, *fVel = nullptr, *fMix = nullptr;
 
     float baseFreq = 0.f, vel = 0.f, phase1 = 0.f, phase2 = 0.f, tickCoef = 0.1f;
     float sL1 = 0.f, sL2 = 0.f, sInc1 = 0.f, sInc2 = 0.f, sRes = 0.f, sMix = 1.f, sCut = 10.f;
