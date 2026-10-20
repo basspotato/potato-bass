@@ -49,6 +49,7 @@ namespace ID
     inline constexpr const char* sOn       = "seq_on";
     inline constexpr const char* sRate     = "seq_rate";
     inline constexpr const char* sGate     = "seq_gate";
+    inline constexpr const char* sDir      = "seq_dir";
 }
 
 // Filter types: LP12, LP24, HP12, HP24, BP, Notch
@@ -101,6 +102,7 @@ inline const juce::StringArray lfoShapeNames { "Duck", "Sine", "Triangle", "Saw 
 inline const juce::StringArray lfoTargetNames { "Volume", "Cutoff" };
 inline const juce::StringArray syncNames { "2 Bars", "1 Bar", "1/2", "1/4", "1/4D", "1/4T", "1/8", "1/8D", "1/8T", "1/16", "1/16D", "1/16T", "1/32" };
 inline constexpr double syncBeats[] { 8.0, 4.0, 2.0, 1.0, 1.5, 2.0 / 3.0, 0.5, 0.75, 1.0 / 3.0, 0.25, 0.375, 1.0 / 6.0, 0.125 };
+inline const juce::StringArray seqDirNames { "Up", "Down", "Up/Down", "Random" };
 inline const juce::StringArray seqRateNames { "1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32" };
 inline constexpr double seqBeats[] { 1.0, 0.5, 1.0 / 3.0, 0.25, 1.0 / 6.0, 0.125 };
 
@@ -203,6 +205,7 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout
 
     layout.add(std::make_unique<AudioParameterBool>(ParameterID { ID::sOn, 1 }, "Seq On", false));
     layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ID::sRate, 1 }, "Seq Rate", seqRateNames, 3));
+    layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ID::sDir, 1 }, "Seq Direction", seqDirNames, 0));
     layout.add(std::make_unique<AudioParameterFloat>(ParameterID { ID::sGate, 1 }, "Seq Gate", NormalisableRange<float>(0.05f, 1.f, 0.01f), 0.6f,
                                                      AudioParameterFloatAttributes().withStringFromValueFunction([](float v, int) { return String(roundToInt(v * 100.f)) + "%"; })));
 

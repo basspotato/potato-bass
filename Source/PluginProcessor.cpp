@@ -48,6 +48,7 @@ PotatoBassProcessor::PotatoBassProcessor()
     sOn = apvts.getRawParameterValue(ID::sOn);
     sRate = apvts.getRawParameterValue(ID::sRate);
     sGate = apvts.getRawParameterValue(ID::sGate);
+    sDir = apvts.getRawParameterValue(ID::sDir);
     for (int i = 0; i < 16; ++i)
     {
         stOn[i] = apvts.getRawParameterValue(stepId("seq_on", i));
@@ -74,6 +75,26 @@ void PotatoBassProcessor::loadPreset(int index, bool asUserGesture)
         set(apvts.getParameter(pb::presetIds[i]), p.v[i]);
     for (auto* id : { ID::o1On, ID::o2On, ID::eOn, ID::fOn, ID::dOn, ID::cOn, ID::lOn })
         set(apvts.getParameter(id), 1.f);
+}
+
+void PotatoBassProcessor::loadSeqPattern(int index)
+{
+    index = juce::jlimit(0, pb::numSeqPatterns - 1, index);
+    currentPattern = index;
+    const auto& p = pb::seqPatterns[index];
+    auto set = [](juce::RangedAudioParameter* prm, float value)
+    {
+        if (prm == nullptr) return;
+        prm->beginChangeGesture();
+        prm->setValueNotifyingHost(prm->convertTo0to1(value));
+        prm->endChangeGesture();
+    };
+    for (int i = 0; i < 16; ++i)
+    {
+        set(apvts.getParameter(stepId("seq_on", i)), p.on[i] ? 1.f : 0.f);
+        set(apvts.getParameter(stepId("seq_pit", i)), (float) p.pit[i]);
+        set(apvts.getParameter(stepId("seq_vel", i)), p.vel[i]);
+    }
 }
 
 bool PotatoBassProcessor::presetIsModified() const
@@ -119,6 +140,26 @@ void PotatoBassProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 bool PotatoBassProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
     return layouts.getMainOutputChannelSet() == juce::AudioChannelSet::stereo();
+}
+
+// Maps a running step count to a pattern step for the chosen direction (0 up, 1 down, 2 up/down, 3 random).
+static int stepForCount(long long count, int dir)
+{
+    const int k = (int) (((count % 16) + 16) % 16);
+    if (dir == 1)
+        return 15 - k;
+    if (dir == 2)
+    {
+        const int m = (int) (((count % 30) + 30) % 30);
+        return m < 16 ? m : 30 - m;
+    }
+    if (dir == 3)
+    {
+        auto h = (unsigned long long) count * 0x9E3779B97F4A7C15ULL;
+        h ^= h >> 29; h *= 0xBF58476D1CE4E5B9ULL; h ^= h >> 32;
+        return (int) (h % 16ULL);
+    }
+    return k;
 }
 
 void PotatoBassProcessor::runSequencer(juce::MidiBuffer& midi, int n, double p0, double bpb)
@@ -171,13 +212,14 @@ void PotatoBassProcessor::runSequencer(juce::MidiBuffer& midi, int n, double p0,
 
     const double stepBeats = seqBeats[(int) sRate->load()];
     const double gate = sGate->load();
+    const int dir = (int) sDir->load();
 
     for (int i = 0; i < n; ++i)
     {
         const double pos = (p0 + i * bpb) / stepBeats;
         const long long abs = (long long) std::floor(pos);
         const bool newStep = abs != lastAbsStep;
-        const int step = (int) (((abs % 16) + 16) % 16);
+        const int step = stepForCount(abs, dir);
 
         if (seqNote >= 0 && (newStep || pos - (double) abs >= gate || heldCount == 0))
         {
@@ -393,6 +435,7 @@ void PotatoBassProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
     state.setProperty("preset", currentPreset.load(), nullptr);
+    state.setProperty("pattern", currentPattern.load(), nullptr);
     if (auto xml = state.createXml())
         copyXmlToBinary(*xml, destData);
 }
@@ -404,6 +447,7 @@ void PotatoBassProcessor::setStateInformation(const void* data, int sizeInBytes)
         {
             auto tree = juce::ValueTree::fromXml(*xml);
             currentPreset = juce::jlimit(0, pb::numPresets - 1, (int) tree.getProperty("preset", 1));
+            currentPattern = juce::jlimit(0, pb::numSeqPatterns - 1, (int) tree.getProperty("pattern", 1));
             apvts.replaceState(tree);
         }
 }

@@ -25,6 +25,6 @@ Simple Windows 11 VST3 EDM bass synth. GitHub repo: `potato-bass`.
 - Target: Windows 11, VST3 instrument (EDM bass synth).
 - Framework: JUCE with CMake (confirm with me before changing toolchain).
 - Keep the design simple: oscillator(s), filter, amp envelope, basic distortion/sub as requested. Add only what I instruct.
-- GUI reference: `docs/gui-layout.svg` (layout) and the `theme` namespace in `Source/Displays.h` (colors). Style: dark teal HUD with amber-to-orange segmented knob rings and cyan accents.
+- GUI reference: match Potato-Kicker exactly (`Source/Look.h` palette/knob drawing, `Source/Hud.h` widgets, `theme` in `Source/Displays.h`). Black glossy knobs with orange-to-yellow light rings, all-caps labels, HUD tiles; the sequencer uses a deep blue/purple/magenta palette (`look::rampMode() = 1`).
 - Real-time audio code: no allocations, locks, or file/IO on the audio thread.
 - Keep the build clean and the plugin loadable in a DAW after each change.

@@ -421,4 +421,183 @@ private:
 
     int genre = 0, current = 0, hoverIdx = -1;
 };
+
+//==============================================================================
+// Rotary knob bound to one parameter: Kicker's glossy black knob, light ring and mono value readout.
+class KKnob : public Component
+{
+public:
+    KKnob (RangedAudioParameter& p, String title, float diameter, bool sequencerPalette = false)
+        : param (p), name (std::move (title)), size (diameter), seqPal (sequencerPalette),
+          attach (p, [this] (float) { repaint(); }, nullptr)
+    {
+        attach.sendInitialUpdate();
+        setWantsKeyboardFocus (true);
+        setMouseCursor (MouseCursor::UpDownResizeCursor);
+        setTitle (name);
+    }
+
+    // centre x and top y of the whole knob (caption, dial, value)
+    void placeTop (int cx, int top) { setBounds (cx - ((int) size + 40) / 2, top, (int) size + 40, (int) size + 34); }
+
+    void paint (Graphics& g) override
+    {
+        const int oldMode = rampMode();
+        rampMode() = seqPal ? 1 : 0;
+        const float w = (float) getWidth();
+        g.setFont (label (16.0f, 0.1f));
+        glowText (g, name, Rectangle<float> (0, 0, w, 17), Justification::centred, seqPal ? Colour (0xffc2b4ff) : col::ink, 0.22f);
+        drawLitKnob (g, { w * 0.5f, 18.0f + size * 0.5f }, size, param.getValue(), size >= 84.0f);
+        const Colour valueCol = ramp (param.getValue()).brighter (0.4f);
+        g.setColour (dragging ? valueCol : (seqPal ? Colour (0xff9a8ed8) : Colour (0xffb98c62))); g.setFont (mono (12.5f));
+        g.drawText (param.getText (param.getValue(), 14), Rectangle<float> (0, 18.0f + size, w, 15), Justification::centred, false);
+        if (hasKeyboardFocus (false))
+        {
+            g.setColour (ramp (0.5f).withAlpha (0.6f));
+            g.drawEllipse (Rectangle<float> (size * 0.66f, size * 0.66f).withCentre ({ w * 0.5f, 18.0f + size * 0.5f }), 1.5f);
+        }
+        rampMode() = oldMode;
+    }
+
+    void mouseDown (const MouseEvent& e) override
+    {
+        grabKeyboardFocus();
+        attach.beginGesture();
+        dragging = true;
+        startY = e.getScreenY();
+        startN = param.getValue();
+        repaint();
+    }
+    void mouseDrag (const MouseEvent& e) override
+    {
+        const float n = startN + (float) (startY - e.getScreenY()) / (e.mods.isShiftDown() ? 900.0f : 220.0f);
+        attach.setValueAsPartOfGesture (param.convertFrom0to1 (jlimit (0.0f, 1.0f, n)));
+    }
+    void mouseUp (const MouseEvent&) override { attach.endGesture(); dragging = false; repaint(); }
+    void mouseDoubleClick (const MouseEvent&) override { attach.setValueAsCompleteGesture (param.convertFrom0to1 (param.getDefaultValue())); }
+    void mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& w) override
+    {
+        if (w.deltaY == 0.0f) return;
+        nudge ((w.deltaY > 0 ? 1.0f : -1.0f) * (e.mods.isShiftDown() ? 0.005f : 0.025f));
+    }
+    bool keyPressed (const KeyPress& k) override
+    {
+        const float st = k.getModifiers().isShiftDown() ? 0.005f : 0.02f;
+        if (k.getKeyCode() == KeyPress::upKey || k.getKeyCode() == KeyPress::rightKey) { nudge (st); return true; }
+        if (k.getKeyCode() == KeyPress::downKey || k.getKeyCode() == KeyPress::leftKey) { nudge (-st); return true; }
+        return false;
+    }
+    void focusGained (FocusChangeType) override { repaint(); }
+    void focusLost (FocusChangeType) override { repaint(); }
+    bool hitTest (int x, int) override { return std::abs ((float) x - (float) getWidth() * 0.5f) <= size * 0.5f + 10.0f; }
+
+private:
+    void nudge (float d) { attach.setValueAsCompleteGesture (param.convertFrom0to1 (jlimit (0.0f, 1.0f, param.getValue() + d))); }
+
+    RangedAudioParameter& param;
+    String name;
+    float size;
+    bool seqPal;
+    ParameterAttachment attach;
+    bool dragging = false;
+    int startY = 0;
+    float startN = 0.0f;
+};
+
+//==============================================================================
+// Inset LED window that opens a pop-up list: used for every choice parameter and the pattern picker.
+class PickWindow : public Button
+{
+public:
+    PickWindow() : Button ("pick") {}
+
+    std::function<StringArray()> getItems;
+    std::function<int()> getCurrent;
+    std::function<void (int)> onPickItem;
+    bool seqStyle = false;
+
+    void paintButton (Graphics& g, bool over, bool) override
+    {
+        const auto r = getLocalBounds().toFloat().reduced (1.0f);
+        insetWindow (g, r);
+        if (over) { g.setColour (Colours::white.withAlpha (0.03f)); g.fillRoundedRectangle (r, 3); }
+        const auto items = getItems ? getItems() : StringArray();
+        const int cur = getCurrent ? getCurrent() : 0;
+        const String t = cur >= 0 && cur < items.size() ? items[cur].toUpperCase() : String();
+        g.setFont (mono (15.0f));
+        glowText (g, t, r.withTrimmedLeft (10).withTrimmedRight (22), Justification::centredLeft, seqStyle ? Colour (0xffc2b4ff) : col::yellow, 0.25f);
+        Path tri;
+        const float ax = r.getRight() - 12.0f, ay = r.getCentreY();
+        tri.addTriangle (ax - 4.5f, ay - 2.5f, ax + 4.5f, ay - 2.5f, ax, ay + 3.5f);
+        g.setColour (seqStyle ? Colour (0xff8a2fe0) : col::amber);
+        g.fillPath (tri);
+    }
+
+    void clicked() override
+    {
+        const auto items = getItems ? getItems() : StringArray();
+        PopupMenu m;
+        const int cur = getCurrent ? getCurrent() : -1;
+        for (int i = 0; i < items.size(); ++i)
+            m.addItem (i + 1, items[i].toUpperCase(), true, i == cur);
+        m.showMenuAsync (PopupMenu::Options().withTargetComponent (this).withMinimumWidth (getWidth()),
+                         [this, safe = SafePointer<PickWindow> (this)] (int result)
+                         {
+                             if (safe != nullptr && result > 0 && onPickItem) onPickItem (result - 1);
+                         });
+    }
+};
+
+// PickWindow bound to a choice parameter
+class ChoiceWindow : public PickWindow
+{
+public:
+    ChoiceWindow (RangedAudioParameter& p, StringArray names, String title)
+        : param (p), items (std::move (names)),
+          attach (p, [this] (float v) { index = jlimit (0, items.size() - 1, (int) std::lround (v)); repaint(); }, nullptr)
+    {
+        setTitle (title);
+        getItems = [this] { return items; };
+        getCurrent = [this] { return index; };
+        onPickItem = [this] (int i) { attach.setValueAsCompleteGesture ((float) i); };
+        attach.sendInitialUpdate();
+    }
+
+private:
+    RangedAudioParameter& param;
+    StringArray items;
+    ParameterAttachment attach;
+    int index = 0;
+};
+
+//==============================================================================
+// Section on/off LED, bound to a bool parameter
+class PowerLed : public Component
+{
+public:
+    explicit PowerLed (RangedAudioParameter& p, String title)
+        : attach (p, [this] (float v) { on = v > 0.5f; repaint(); if (onChange) onChange(); }, nullptr)
+    {
+        attach.sendInitialUpdate();
+        setTitle (title);
+        setMouseCursor (MouseCursor::PointingHandCursor);
+    }
+
+    bool isOn() const noexcept { return on; }
+    std::function<void()> onChange;
+
+    void paint (Graphics& g) override
+    {
+        const auto r = getLocalBounds().toFloat().withSizeKeepingCentre (13.0f, 13.0f);
+        drawLed (g, r, on);
+        if (hover) { g.setColour (col::amber.withAlpha (0.6f)); g.drawEllipse (r.expanded (3.0f), 1.0f); }
+    }
+    void mouseEnter (const MouseEvent&) override { hover = true; repaint(); }
+    void mouseExit (const MouseEvent&) override { hover = false; repaint(); }
+    void mouseDown (const MouseEvent&) override { attach.setValueAsCompleteGesture (on ? 0.0f : 1.0f); }
+
+private:
+    ParameterAttachment attach;
+    bool on = true, hover = false;
+};
 }

@@ -5,6 +5,7 @@
 #include <vector>
 #include "Params.h"
 #include "Presets.h"
+#include "SeqPatterns.h"
 #include "Wavetables.h"
 
 class PotatoBassProcessor : public juce::AudioProcessor
@@ -42,6 +43,8 @@ public:
 
     void loadPreset(int index, bool asUserGesture = true);
     bool presetIsModified() const;
+    void loadSeqPattern(int index);
+    std::atomic<int> currentPattern { 1 };
     juce::MidiKeyboardState keyboardState;
     std::atomic<int> currentPreset { 1 };
     std::atomic<float> meterRms { 0.f };
@@ -58,7 +61,7 @@ private:
     juce::MidiBuffer seqMidi;
     std::vector<float> lfoBuf;
     std::atomic<float> *lShape = nullptr, *lRate = nullptr, *lTarget = nullptr, *lDepth = nullptr, *lCurve = nullptr;
-    std::atomic<float> *master = nullptr, *dOn = nullptr, *cOn = nullptr, *lOn = nullptr, *sOn = nullptr, *sRate = nullptr, *sGate = nullptr;
+    std::atomic<float> *master = nullptr, *dOn = nullptr, *cOn = nullptr, *lOn = nullptr, *sOn = nullptr, *sRate = nullptr, *sGate = nullptr, *sDir = nullptr;
     std::atomic<float> *stOn[16] {}, *stPit[16] {}, *stVel[16] {};
     int held[128] {}, heldCount = 0, seqNote = -1;
     long long lastAbsStep = -1;

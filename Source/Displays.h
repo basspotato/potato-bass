@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <cmath>
+#include <tuple>
 #include "Params.h"
 #include "Wavetables.h"
 #include "Look.h"
@@ -11,7 +12,7 @@ namespace theme
     inline const juce::Colour bg      { (juce::uint32) 0xff070707 };
     inline const juce::Colour panel   { (juce::uint32) 0xff141210 };
     inline const juce::Colour display { (juce::uint32) 0xff080504 };
-    inline const juce::Colour grid    { (juce::uint32) 0xff2a1a0c };
+    inline const juce::Colour grid    { (juce::uint32) 0x1aff8a1e };
     inline const juce::Colour border  { (juce::uint32) 0xff5a3410 };
     inline const juce::Colour accent  { (juce::uint32) 0xffff8a1e };
     inline const juce::Colour yellow  { (juce::uint32) 0xffffd23f };
@@ -21,41 +22,47 @@ namespace theme
 
     using Rect = juce::Rectangle<float>;
 
-    // Soft neon glow: wide faint strokes under a bright core.
+    // Kicker-style glow: a soft yellow halo under a pale hot core.
     inline void glow(juce::Graphics& g, const juce::Path& p, float w, juce::Colour c)
     {
-        const float widths[3] { w + 6.f, w + 3.5f, w + 1.5f };
-        const float alphas[3] { 0.07f, 0.13f, 0.24f };
-        for (int i = 0; i < 3; ++i)
-        {
-            g.setColour(c.withAlpha(alphas[i]));
-            g.strokePath(p, juce::PathStrokeType(widths[i], juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        }
-        g.setColour(c.brighter(0.25f));
+        g.setColour(c.withAlpha(0.14f));
+        g.strokePath(p, juce::PathStrokeType(w + 7.f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.setColour(c.withAlpha(0.28f));
+        g.strokePath(p, juce::PathStrokeType(w + 3.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.setColour(juce::Colour((juce::uint32) 0xfffff3d0));
         g.strokePath(p, juce::PathStrokeType(w, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+
+    // Draggable node handle, as on the Kicker screen: dark disc with amber ring, red when grabbed.
+    inline void node(juce::Graphics& g, float x, float y, bool active = false)
+    {
+        const auto r = juce::Rectangle<float>(active ? 14.f : 11.f, active ? 14.f : 11.f).withCentre({ x, y });
+        g.setColour(active ? juce::Colour((juce::uint32) 0xffff3b2c) : juce::Colour((juce::uint32) 0xff140d05)); g.fillEllipse(r);
+        g.setColour(active ? juce::Colour((juce::uint32) 0xffffd2c8) : look::col::amberHi); g.drawEllipse(r, 2.f);
     }
 
     // Dark HUD tile with a thin orange border, a light strip on the top edge and bright corner brackets.
     inline void drawTile(juce::Graphics& g, Rect r)
     {
         using namespace look;
+        const juce::Colour lineC = rampMode() == 1 ? ramp(0.5f) : col::line;
         g.setColour(juce::Colours::black.withAlpha(0.55f)); g.fillRoundedRectangle(r.translated(0, 4), 9);
         g.setGradientFill(juce::ColourGradient(juce::Colour((juce::uint32) 0xff141210), 0, r.getY(), juce::Colour((juce::uint32) 0xff0b0a09), 0, r.getBottom(), false));
         g.fillRoundedRectangle(r, 9);
-        g.setGradientFill(juce::ColourGradient(col::line.withAlpha(0.06f), 0, r.getY(), col::line.withAlpha(0.0f), 0, r.getY() + 46, false));
+        g.setGradientFill(juce::ColourGradient(lineC.withAlpha(0.06f), 0, r.getY(), lineC.withAlpha(0.0f), 0, r.getY() + 46, false));
         g.fillRoundedRectangle(r, 9);
-        g.setGradientFill(juce::ColourGradient(col::orange.withAlpha(0.3f), r.getX(), 0, col::yellow.withAlpha(0.3f), r.getRight(), 0, false));
+        g.setGradientFill(juce::ColourGradient(ramp(0.f).withAlpha(0.3f), r.getX(), 0, ramp(1.f).withAlpha(0.3f), r.getRight(), 0, false));
         g.drawRoundedRectangle(r.reduced(0.5f), 9, 1.0f);
 
         const float lx0 = r.getX() + 26, lx1 = r.getRight() - 26;
-        auto strip = juce::ColourGradient(col::orange.withAlpha(0.0f), lx0, 0, col::yellow.withAlpha(0.0f), lx1, 0, false);
-        strip.addColour(0.15, col::orange.withAlpha(0.9f));
-        strip.addColour(0.85, col::yellow.withAlpha(0.9f));
+        auto strip = juce::ColourGradient(ramp(0.f).withAlpha(0.0f), lx0, 0, ramp(1.f).withAlpha(0.0f), lx1, 0, false);
+        strip.addColour(0.15, ramp(0.f).withAlpha(0.9f));
+        strip.addColour(0.85, ramp(1.f).withAlpha(0.9f));
         auto gl = strip; gl.multiplyOpacity(0.22f);
         g.setGradientFill(gl);    g.fillRoundedRectangle(lx0, r.getY() - 1.5f, lx1 - lx0, 6.0f, 3.0f);
         g.setGradientFill(strip); g.fillRect(lx0, r.getY() + 0.5f, lx1 - lx0, 1.6f);
 
-        g.setGradientFill(juce::ColourGradient(col::orange.withAlpha(0.95f), r.getX(), 0, col::yellow.withAlpha(0.95f), r.getRight(), 0, false));
+        g.setGradientFill(juce::ColourGradient(ramp(0.f).withAlpha(0.95f), r.getX(), 0, ramp(1.f).withAlpha(0.95f), r.getRight(), 0, false));
         const float L = 16.0f, t = 2.0f, x0 = r.getX() + 3, y0 = r.getY() + 3, x1 = r.getRight() - 3, y1 = r.getBottom() - 3;
         g.fillRect(x0, y0, L, t);         g.fillRect(x0, y0, t, L);
         g.fillRect(x1 - L, y0, L, t);     g.fillRect(x1 - t, y0, t, L);
@@ -67,12 +74,13 @@ namespace theme
     inline void section(juce::Graphics& g, const juce::String& text, float x, float y, float w)
     {
         using namespace look;
+        const juce::Colour lineC = rampMode() == 1 ? ramp(0.5f) : col::line;
         const auto f = label(15.0f, 0.22f);
         const float tw = juce::GlyphArrangement::getStringWidth(f, text) + 32.0f;
         const float cy = y + 7.0f, mid = x + w * 0.5f, l = mid - tw * 0.5f, r = mid + tw * 0.5f;
-        g.setGradientFill(juce::ColourGradient(col::line.withAlpha(0.0f), x, cy, col::line.withAlpha(0.45f), l, cy, false));
+        g.setGradientFill(juce::ColourGradient(lineC.withAlpha(0.0f), x, cy, lineC.withAlpha(0.45f), l, cy, false));
         g.fillRect(x, cy, l - x, 1.0f);
-        g.setGradientFill(juce::ColourGradient(col::line.withAlpha(0.45f), r, cy, col::line.withAlpha(0.0f), x + w, cy, false));
+        g.setGradientFill(juce::ColourGradient(lineC.withAlpha(0.45f), r, cy, lineC.withAlpha(0.0f), x + w, cy, false));
         g.fillRect(r, cy, x + w - r, 1.0f);
         drawLed(g, juce::Rectangle<float>(5, 5).withCentre({ l + 5, cy + 0.5f }), true);
         drawLed(g, juce::Rectangle<float>(5, 5).withCentre({ r - 5, cy + 0.5f }), true);
@@ -86,36 +94,31 @@ namespace theme
         section(g, title, 30.f, 6.f, b.getWidth() - 60.f);
     }
 
-    // Recessed black glass screen with bezel, corner brackets, inner shadow and scanlines.
-    inline void paintDisplayBg(juce::Graphics& g, Rect b)
+    // Kicker screen: warm radial glow rising from the bottom edge, thin amber outline.
+    inline void paintDisplayBg(juce::Graphics& g, Rect b, bool seqTint = false)
     {
         using namespace look;
-        g.setGradientFill(juce::ColourGradient(juce::Colour((juce::uint32) 0xff100d0a), 0, b.getY(), juce::Colour((juce::uint32) 0xff060504), 0, b.getBottom(), false));
-        g.fillRoundedRectangle(b, 8.f);
-        g.setColour(col::line.withAlpha(0.30f)); g.drawRoundedRectangle(b.reduced(0.5f), 8.f, 1.f);
+        g.setGradientFill(juce::ColourGradient(juce::Colour((juce::uint32) (seqTint ? 0xff141640 : 0xff1e1408)), b.getCentreX(), b.getY() + b.getHeight() * 0.9f,
+                                               juce::Colour((juce::uint32) (seqTint ? 0xff05051a : 0xff0a0703)), b.getCentreX() + b.getWidth() * 0.7f, b.getY() + b.getHeight() * 0.9f, true));
+        g.fillRoundedRectangle(b, 7.f);
+        g.setColour((seqTint ? juce::Colour((juce::uint32) 0xff6a4cff) : col::line).withAlpha(0.25f));
+        g.drawRoundedRectangle(b.reduced(0.5f), 7.f, 1.f);
+    }
 
-        const auto in = b.reduced(4.f);
-        {
-            juce::Graphics::ScopedSaveState ss(g);
-            juce::Path clip;
-            clip.addRoundedRectangle(in, 5.f);
-            g.reduceClipRegion(clip);
-            g.setGradientFill(juce::ColourGradient(juce::Colour((juce::uint32) 0xff120c07), 0, in.getY(), juce::Colour((juce::uint32) 0xff040302), 0, in.getBottom(), false));
-            g.fillRect(in);
-            g.setGradientFill(juce::ColourGradient(juce::Colours::black.withAlpha(0.7f), 0, in.getY(), juce::Colours::transparentBlack, 0, in.getY() + 14.f, false));
-            g.fillRect(in.withHeight(14.f));
-            g.setColour(juce::Colours::black.withAlpha(0.16f));
-            for (float y = in.getY() + 1.f; y < in.getBottom(); y += 3.f)
-                g.fillRect(in.getX(), y, in.getWidth(), 1.f);
-        }
-        g.setColour(col::line.withAlpha(0.25f)); g.drawRoundedRectangle(in, 5.f, 1.f);
-
+    // Outer bezel with corner brackets (the frame around the tabbed centre screen).
+    inline void paintBezel(juce::Graphics& g, Rect bb)
+    {
+        using namespace look;
+        g.setGradientFill(juce::ColourGradient(juce::Colour((juce::uint32) 0xff100d0a), 0, 0, juce::Colour((juce::uint32) 0xff060504), 0, bb.getHeight(), false));
+        g.fillRoundedRectangle(bb, 10.f);
+        g.setColour(col::line.withAlpha(0.30f)); g.drawRoundedRectangle(bb.reduced(0.5f), 10.f, 1.f);
         g.setColour(col::line.withAlpha(0.85f));
-        const float x0 = b.getX() + 2.f, y0 = b.getY() + 2.f, x1 = b.getRight() - 2.f, y1 = b.getBottom() - 2.f, L = 10.f;
-        g.fillRect(x0, y0, L, 1.5f);      g.fillRect(x0, y0, 1.5f, L);
-        g.fillRect(x1 - L, y0, L, 1.5f);  g.fillRect(x1 - 1.5f, y0, 1.5f, L);
-        g.fillRect(x0, y1 - 1.5f, L, 1.5f);  g.fillRect(x0, y1 - L, 1.5f, L);
-        g.fillRect(x1 - L, y1 - 1.5f, L, 1.5f); g.fillRect(x1 - 1.5f, y1 - L, 1.5f, L);
+        for (auto [x, y, dx, dy] : { std::tuple<float, float, float, float> { 4, 4, 1, 1 }, { bb.getRight() - 4, 4, -1, 1 },
+                                     { 4, bb.getBottom() - 4, 1, -1 }, { bb.getRight() - 4, bb.getBottom() - 4, -1, -1 } })
+        {
+            g.fillRect(dx > 0 ? x : x - 16, dy > 0 ? y : y - 2, 16.f, 2.f);
+            g.fillRect(dx > 0 ? x : x - 2, dy > 0 ? y : y - 16, 2.f, 16.f);
+        }
     }
 }
 
@@ -342,10 +345,7 @@ public:
 
         for (auto pt : { p.p1, p.p2, p.p4 })
         {
-            g.setColour(theme::bg);
-            g.fillEllipse(pt.x - 6.f, pt.y - 6.f, 12.f, 12.f);
-            g.setColour(theme::accent);
-            g.drawEllipse(pt.x - 6.f, pt.y - 6.f, 12.f, 12.f, 2.f);
+            theme::node(g, pt.x, pt.y);
         }
     }
 
@@ -466,10 +466,7 @@ public:
 
         const float cx = r.getX() + r.getWidth() * std::log10(cutoff / 20.f) / 3.f;
         const float cy = dbToY(20.f * std::log10(juce::jmax(1.0e-5f, magnitude(cutoff))), r);
-        g.setColour(theme::bg);
-        g.fillEllipse(cx - 6.f, cy - 6.f, 12.f, 12.f);
-        g.setColour(theme::accent);
-        g.drawEllipse(cx - 6.f, cy - 6.f, 12.f, 12.f, 2.f);
+        theme::node(g, cx, cy);
     }
 
     void mouseDown(const juce::MouseEvent& e) override
@@ -606,10 +603,7 @@ public:
 
         for (auto pt : { handleThr(r), handleRatio(r) })
         {
-            g.setColour(theme::bg);
-            g.fillEllipse(pt.x - 6.f, pt.y - 6.f, 12.f, 12.f);
-            g.setColour(theme::accent);
-            g.drawEllipse(pt.x - 6.f, pt.y - 6.f, 12.f, 12.f, 2.f);
+            theme::node(g, pt.x, pt.y);
         }
 
         const float mx = b.getRight() - 14.f;
@@ -715,10 +709,7 @@ public:
         theme::glow(g, path, 2.f, theme::accent);
 
         const auto h = handle(r);
-        g.setColour(theme::bg);
-        g.fillEllipse(h.x - 6.f, h.y - 6.f, 12.f, 12.f);
-        g.setColour(theme::accent);
-        g.drawEllipse(h.x - 6.f, h.y - 6.f, 12.f, 12.f, 2.f);
+        theme::node(g, h.x, h.y);
     }
 
     void mouseDown(const juce::MouseEvent& e) override
@@ -803,9 +794,12 @@ public:
 
     void paint(juce::Graphics& g) override
     {
-        theme::paintDisplayBg(g, getLocalBounds().toFloat());
+        theme::paintDisplayBg(g, getLocalBounds().toFloat(), true);
+        const int oldMode = look::rampMode();
+        look::rampMode() = 1;
         const int cur = curStep.load();
         const float cw = (float) getWidth() / 16.f;
+        const juce::Colour deepBlue(0xff2b4cf0), deepPurple(0xff8a2fe0), deepMagenta(0xffe0259e);
 
         for (int i = 0; i < 16; ++i)
         {
@@ -817,31 +811,57 @@ public:
 
             if (i == cur)
             {
-                g.setColour(theme::cyan.withAlpha(0.14f));
+                g.setGradientFill(juce::ColourGradient(deepBlue.withAlpha(0.30f), 0.f, 0.f, deepMagenta.withAlpha(0.18f), 0.f, (float) getHeight(), false));
                 g.fillRect(x, 0.f, cw, (float) getHeight());
+                g.setColour(deepBlue.brighter(0.5f).withAlpha(0.9f));
+                g.fillRect(x + 3.f, 0.f, cw - 6.f, 2.f);
             }
 
-            g.setColour(theme::grid);
+            g.setColour(deepPurple.withAlpha(0.28f));
             g.fillRect(pit.getX(), pit.getCentreY() - 0.5f, pit.getWidth(), 1.f);
             g.drawRect(pit, 1.f);
             g.drawRect(vel, 1.f);
 
             const float pv = pPit[i]->getValue();
             const float yv = pit.getBottom() - pv * pit.getHeight();
-            g.setColour(on ? theme::accent : theme::accent.withAlpha(0.3f));
             const float y0 = std::min(yv, pit.getCentreY()), y1 = std::max(yv, pit.getCentreY());
-            g.fillRect(pit.getX() + 2.f, y0, pit.getWidth() - 4.f, std::max(2.f, y1 - y0));
+            const juce::Rectangle<float> pbar(pit.getX() + 2.f, y0, pit.getWidth() - 4.f, std::max(2.f, y1 - y0));
+            g.setGradientFill(juce::ColourGradient(look::ramp(pv).withAlpha(on ? 1.f : 0.3f), 0.f, pit.getBottom(),
+                                                   look::ramp(1.f - pv * 0.3f).withAlpha(on ? 1.f : 0.3f), 0.f, pit.getY(), false));
+            g.fillRect(pbar);
+            if (on)
+            {
+                g.setColour(look::ramp(pv).withAlpha(0.25f));
+                g.fillRect(pbar.expanded(2.f, 2.f));
+                g.setColour(juce::Colours::white.withAlpha(0.55f));
+                g.fillRect(pbar.getX(), yv - 0.5f, pbar.getWidth(), 1.5f);
+            }
 
             const float vv = pVel[i]->getValue();
-            g.setColour(on ? theme::cyan : theme::cyan.withAlpha(0.3f));
-            g.fillRect(vel.getX() + 2.f, vel.getBottom() - vv * vel.getHeight(), vel.getWidth() - 4.f, vv * vel.getHeight());
+            const juce::Rectangle<float> vbar(vel.getX() + 2.f, vel.getBottom() - vv * vel.getHeight(), vel.getWidth() - 4.f, vv * vel.getHeight());
+            g.setGradientFill(juce::ColourGradient(deepMagenta.withAlpha(on ? 1.f : 0.3f), 0.f, vel.getBottom(),
+                                                   deepPurple.withAlpha(on ? 1.f : 0.3f), 0.f, vel.getY(), false));
+            g.fillRect(vbar);
 
-            g.setColour(on ? theme::hot : theme::grid);
+            if (on)
+            {
+                g.setColour(deepBlue.withAlpha(0.35f));
+                g.fillRoundedRectangle(tog.expanded(2.f), 5.f);
+                g.setGradientFill(juce::ColourGradient(deepBlue.brighter(0.2f), 0.f, tog.getY(), deepMagenta, 0.f, tog.getBottom(), false));
+            }
+            else
+                g.setGradientFill(juce::ColourGradient(juce::Colour((juce::uint32) 0xff1a1740), 0.f, tog.getY(), juce::Colour((juce::uint32) 0xff0a0822), 0.f, tog.getBottom(), false));
             g.fillRoundedRectangle(tog, 3.f);
-            g.setColour(on ? theme::bg : theme::text.withAlpha(0.6f));
-            g.setFont(look::mono(11.f));
-            g.drawText(juce::String(i + 1), tog.toNearestInt(), juce::Justification::centred);
+            if (!on)
+            {
+                g.setColour(deepPurple.withAlpha(0.5f));
+                g.drawRoundedRectangle(tog.reduced(0.5f), 3.f, 1.f);
+            }
+            g.setColour(on ? juce::Colour((juce::uint32) 0xfff4ecff) : juce::Colour((juce::uint32) 0xff9a86d8));
+            g.setFont(look::mono(12.f));
+            g.drawText(juce::String(i + 1).paddedLeft('0', 2), tog.toNearestInt(), juce::Justification::centred);
         }
+        look::rampMode() = oldMode;
     }
 
     void mouseDown(const juce::MouseEvent& e) override

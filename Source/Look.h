@@ -83,15 +83,26 @@ namespace col
     }
 
     // Orange -> yellow light ramp used across the whole console (0 = orange, 1 = yellow)
-    inline Colour ramp (float t) { return col::orange.interpolatedWith (col::yellow, jlimit (0.0f, 1.0f, t)); }
+    // Palette mode: 0 = orange -> yellow console light, 1 = deep blue -> deep purple -> deep magenta (sequencer)
+    inline int& rampMode() { static int m = 0; return m; }
+    inline Colour ramp (float t)
+    {
+        t = jlimit (0.0f, 1.0f, t);
+        if (rampMode() == 1)
+        {
+            const Colour blue (0xff2b4cf0), purple (0xff8a2fe0), magenta (0xffe0259e);
+            return t < 0.5f ? blue.interpolatedWith (purple, t * 2.0f) : purple.interpolatedWith (magenta, (t - 0.5f) * 2.0f);
+        }
+        return col::orange.interpolatedWith (col::yellow, t);
+    }
 
     // Glowing text filled with the orange -> yellow ramp from left to right
     inline void glowTextRamp (Graphics& g, const String& s, Rectangle<float> r, Justification j, float glow)
     {
-        g.setColour (col::orange.withAlpha (glow));
+        g.setColour (ramp (0.0f).withAlpha (glow));
         for (auto d : { Point<float> (-1, 0), Point<float> (1, 0), Point<float> (0, -1), Point<float> (0, 1) })
             g.drawText (s, r.translated (d.x, d.y), j, false);
-        g.setGradientFill (ColourGradient (col::orange, r.getX(), 0, col::yellow, r.getRight(), 0, false));
+        g.setGradientFill (ColourGradient (ramp (0.0f), r.getX(), 0, ramp (1.0f), r.getRight(), 0, false));
         g.drawText (s, r, j, false);
     }
 
