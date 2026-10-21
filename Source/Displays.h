@@ -853,14 +853,14 @@ public:
                 g.setGradientFill(juce::ColourGradient(deepBlue.brighter(0.2f), 0.f, tog.getY(), deepMagenta, 0.f, tog.getBottom(), false));
             }
             else
-                g.setGradientFill(juce::ColourGradient(juce::Colour((juce::uint32) 0xff1a1740), 0.f, tog.getY(), juce::Colour((juce::uint32) 0xff0a0822), 0.f, tog.getBottom(), false));
+                g.setGradientFill(juce::ColourGradient(juce::Colour((juce::uint32) 0xff2a1a0c), 0.f, tog.getY(), juce::Colour((juce::uint32) 0xff120a05), 0.f, tog.getBottom(), false));
             g.fillRoundedRectangle(tog, 3.f);
             if (!on)
             {
                 g.setColour(deepPurple.withAlpha(0.5f));
                 g.drawRoundedRectangle(tog.reduced(0.5f), 3.f, 1.f);
             }
-            g.setColour(on ? juce::Colour((juce::uint32) 0xfff4ecff) : juce::Colour((juce::uint32) 0xff9a86d8));
+            g.setColour(on ? juce::Colour((juce::uint32) 0xfffff3d0) : juce::Colour((juce::uint32) 0xffb98c62));
             g.setFont(look::mono(12.f));
             g.drawText(juce::String(i + 1).paddedLeft('0', 2), tog.toNearestInt(), juce::Justification::centred);
         }

@@ -41,6 +41,7 @@ namespace ID
     inline constexpr const char* cOn      = "comp_on";
     inline constexpr const char* lOn      = "lfo_on";
     inline constexpr const char* master    = "master_gain";
+    inline constexpr const char* stereo    = "stereo";
     inline constexpr const char* lShape    = "lfo_shape";
     inline constexpr const char* lRate     = "lfo_rate";
     inline constexpr const char* lTarget   = "lfo_target";
@@ -196,6 +197,8 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout
     layout.add(std::make_unique<AudioParameterBool>(ParameterID { ID::lOn, 1 }, "LFO On", true));
     layout.add(std::make_unique<AudioParameterFloat>(ParameterID { ID::master, 1 }, "Master", skewed(-60.f, 6.f, -14.f), 0.f,
                                                      fAttr([](float v, int) { return v <= -59.9f ? String("-inf") : String(v, 1) + " dB"; })));
+    layout.add(std::make_unique<AudioParameterBool>(ParameterID { ID::stereo, 1 }, "Stereo Output", false,
+                                                    AudioParameterBoolAttributes().withStringFromValueFunction([](bool b, int) { return b ? "Stereo" : "Mono"; })));
 
     layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ID::lShape, 1 }, "LFO Shape", lfoShapeNames, 0));
     layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ID::lRate, 1 }, "LFO Rate", syncNames, 3));

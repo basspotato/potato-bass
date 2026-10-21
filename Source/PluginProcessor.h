@@ -77,6 +77,9 @@ private:
     double freePpq = 0.0;
     std::array<float, scopeSize> scopeBuf {};
     std::atomic<int> scopeWrite { 0 };
+    std::atomic<float>* stereoP = nullptr;
+    float sideX = 0.f, sideY = 0.f, sideA = 0.96f, sideDelay[64] {};
+    int sideIdx = 0, sideLen = 12;
     float lfoState = 1.f;
     bool lfoPrimed = false;
     juce::dsp::Oversampling<float> oversampling { 2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, false };

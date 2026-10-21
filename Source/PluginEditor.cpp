@@ -12,7 +12,8 @@ public:
           wave1(p.wavetables, p.apvts, ID::osc1Table), wave2(p.wavetables, p.apvts, ID::osc2Table),
           ampD(p.apvts), filtD(p.apvts), distD(p.apvts), compD(p.apvts, p.grMeter), lfoD(p.apvts),
           seqDisplay(p.apvts, p.seqStep),
-          scope({ [&p] { return p.getScopeWritePos(); }, [&p](float* d, int n, int pos) { p.copyScope(d, n, pos); }, [&p] { return p.getSampleRate(); } })
+          scope({ [&p] { return p.getScopeWritePos(); }, [&p](float* d, int n, int pos) { p.copyScope(d, n, pos); }, [&p] { return p.getSampleRate(); } }),
+          stereoAttach(*p.apvts.getParameter(ID::stereo), [this](float v) { monoBtn.setToggleState(v < 0.5f, juce::dontSendNotification); stereoBtn.setToggleState(v >= 0.5f, juce::dontSendNotification); }, nullptr)
     {
         auto& s = p.apvts;
         auto prm = [&s](const char* id) -> juce::RangedAudioParameter& { return *s.getParameter(id); };
@@ -59,7 +60,7 @@ public:
         scopePick.onPickItem = [this](int i) { scope.setMode(i); proc.scopeMode = i; scopePick.repaint(); };
         scopePick.setTitle("Master display type");
         addAndMakeVisible(scopePick);
-        scopePick.setBounds(812, 88, 156, 24);
+        scopePick.setBounds(1020, 47, 156, 24);
         masterSlider.setSliderStyle(juce::Slider::LinearHorizontal);
         masterSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 78, 22);
         masterSlider.setColour(juce::Slider::textBoxTextColourId, col::yellow);
@@ -136,6 +137,13 @@ public:
         nameWin.setBounds(458, sy + 26, 270, 34);
         midiLed.setBounds(764, sy + 30, 27, 27);
         trigger.setBounds(978, sy + 14, 62, 62);
+        monoBtn.setBounds(826, sy + 28, 54, 30); stereoBtn.setBounds(886, sy + 28, 70, 30);
+        addAndMakeVisible(monoBtn); addAndMakeVisible(stereoBtn);
+        monoBtn.setTitle("Mono output");
+        stereoBtn.setTitle("Stereo output");
+        monoBtn.onClick   = [this] { stereoAttach.setValueAsCompleteGesture(0.0f); };
+        stereoBtn.onClick = [this] { stereoAttach.setValueAsCompleteGesture(1.0f); };
+        stereoAttach.sendInitialUpdate();
         for (juce::Component* c : { (juce::Component*) &genreWin, (juce::Component*) &segs, (juce::Component*) &nameWin,
                                     (juce::Component*) &midiLed, (juce::Component*) &trigger })
             addAndMakeVisible(c);
@@ -202,7 +210,7 @@ public:
         for (auto& t : tiles)
         {
             theme::drawTile(g, t.r);
-            theme::section(g, t.name, t.r.getX() + 18.f, t.r.getY() + 6.f, t.r.getWidth() - 140.f);
+            theme::section(g, t.name, t.r.getX() + 18.f, t.r.getY() + 6.f, juce::String(t.name) == "OUTPUT" ? 190.f : t.r.getWidth() - 140.f);
         }
 
         {
@@ -232,6 +240,7 @@ public:
         cap("PRESET", 356, sy + 74);
         cap("CLICK NAME TO BROWSE ALL 120", 593, sy + 68);
         cap("MIDI IN", 777, sy + 68);
+        cap("OUTPUT", 891, sy + 68);
         cap("TRIGGER", 1009, sy + 84);
         g.setFont(label(15.0f, 0.14f));
         glowText(g, "MASTER", juce::Rectangle<float>(806, 277, 76, 17), juce::Justification::centredLeft, col::ink, 0.22f);
@@ -276,6 +285,8 @@ private:
     SeqDisplay seqDisplay;
     MasterScope scope;
     PickWindow scopePick;
+    SquareButton monoBtn { SquareButton::text, "MONO" }, stereoBtn { SquareButton::text, "STEREO" };
+    juce::ParameterAttachment stereoAttach;
     juce::Slider masterSlider;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> masterAtt;
     juce::OwnedArray<KKnob> knobs;

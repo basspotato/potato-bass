@@ -42,6 +42,7 @@ PotatoBassProcessor::PotatoBassProcessor()
     lDepth = apvts.getRawParameterValue(ID::lDepth);
     lCurve = apvts.getRawParameterValue(ID::lCurve);
     master = apvts.getRawParameterValue(ID::master);
+    stereoP = apvts.getRawParameterValue(ID::stereo);
     dOn = apvts.getRawParameterValue(ID::dOn);
     cOn = apvts.getRawParameterValue(ID::cOn);
     lOn = apvts.getRawParameterValue(ID::lOn);
@@ -121,6 +122,10 @@ void PotatoBassProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     seqNote = -1;
     lastAbsStep = -1;
     freePpq = 0.0;
+    sideA = (float) std::exp(-2.0 * juce::MathConstants<double>::pi * 300.0 / sampleRate);
+    sideLen = juce::jlimit(1, 63, (int) std::lround(0.00025 * sampleRate));
+    std::fill(std::begin(sideDelay), std::end(sideDelay), 0.f);
+    sideX = sideY = 0.f;
     dgBuf.assign((size_t) maxBlock, 0.f);
     ogBuf.assign((size_t) maxBlock, 0.f);
 
@@ -318,8 +323,13 @@ void PotatoBassProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
         for (int i = 0; i < n; ++i)
         {
             const float g = masterSm.getNextValue();
-            L[i] *= g;
-            R[i] *= g;
+            const float x = 0.5f * (L[i] + R[i]) * g;
+            sideY = sideA * (sideY + x - sideX); sideX = x;
+            const float d = sideDelay[(sideIdx - sideLen + 64) & 63];
+            sideDelay[sideIdx] = sideY; sideIdx = (sideIdx + 1) & 63;
+            const float wide = stereoP->load() > 0.5f ? 0.45f : 0.f;
+            L[i] = x + wide * d;
+            R[i] = x - wide * d;
             sumSq += L[i] * L[i];
             scopeBuf[(size_t) (w++ & (scopeSize - 1))] = 0.5f * (L[i] + R[i]);
         }
