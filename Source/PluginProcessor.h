@@ -50,12 +50,13 @@ public:
     std::atomic<int> currentPreset { 1 };
     std::atomic<float> meterRms { 0.f };
     static constexpr int scopeSize = 8192;
-    void copyScope(float* dst, int n) const
+    int getScopeWritePos() const { return scopeWrite.load(std::memory_order_acquire); }
+    void copyScope(float* dst, int n, int pos) const
     {
-        const int pos = scopeWrite.load(std::memory_order_acquire);
         for (int i = 0; i < n; ++i)
             dst[i] = scopeBuf[(size_t) ((pos - n + i) & (scopeSize - 1))];
     }
+    std::atomic<int> scopeMode { 0 };
     std::atomic<int> heldNotes { 0 };
     std::atomic<unsigned> noteOnCounter { 0 };
 

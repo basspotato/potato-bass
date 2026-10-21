@@ -12,7 +12,7 @@ public:
           wave1(p.wavetables, p.apvts, ID::osc1Table), wave2(p.wavetables, p.apvts, ID::osc2Table),
           ampD(p.apvts), filtD(p.apvts), distD(p.apvts), compD(p.apvts, p.grMeter), lfoD(p.apvts),
           seqDisplay(p.apvts, p.seqStep),
-          scope([&p](float* d, int n) { p.copyScope(d, n); }, [&p] { return p.getSampleRate(); })
+          scope({ [&p] { return p.getScopeWritePos(); }, [&p](float* d, int n, int pos) { p.copyScope(d, n, pos); }, [&p] { return p.getSampleRate(); } })
     {
         auto& s = p.apvts;
         auto prm = [&s](const char* id) -> juce::RangedAudioParameter& { return *s.getParameter(id); };
@@ -53,6 +53,13 @@ public:
             power(o == 0 ? ID::o1On : ID::o2On, o == 0 ? "Oscillator 1 on" : "Oscillator 2 on", { ox, 44, 380, 276 });
         }
         place(scope, { 802, 80, 372, 170 });
+        scope.setMode(p.scopeMode.load());
+        scopePick.getItems = [] { return juce::StringArray { "Classic", "Spectral Cloud", "Waveform" }; };
+        scopePick.getCurrent = [this] { return scope.getMode(); };
+        scopePick.onPickItem = [this](int i) { scope.setMode(i); proc.scopeMode = i; scopePick.repaint(); };
+        scopePick.setTitle("Master display type");
+        addAndMakeVisible(scopePick);
+        scopePick.setBounds(812, 88, 156, 24);
         masterSlider.setSliderStyle(juce::Slider::LinearHorizontal);
         masterSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 78, 22);
         masterSlider.setColour(juce::Slider::textBoxTextColourId, col::yellow);
@@ -136,8 +143,8 @@ public:
         nameWin.setTitle("Preset name - open preset browser");
         trigger.setTitle("Trigger C1");
 
-        gPrev.onClick = [this] { pick(((current() / 10) + 9) % 10 * 10, true); };
-        gNext.onClick = [this] { pick(((current() / 10) + 1) % 10 * 10, true); };
+        gPrev.onClick = [this] { pick(((current() / 10) + pb::numGenres - 1) % pb::numGenres * 10, true); };
+        gNext.onClick = [this] { pick(((current() / 10) + 1) % pb::numGenres * 10, true); };
         pPrev.onClick = [this] { pick(current() / 10 * 10 + (current() % 10 + 9) % 10, true); };
         pNext.onClick = [this] { pick(current() / 10 * 10 + (current() % 10 + 1) % 10, true); };
         genreWin.onClick = [this] { browser.show(current()); };
@@ -185,9 +192,7 @@ public:
     {
         g.fillAll(col::page);
         g.setGradientFill(juce::ColourGradient(col::amber.withAlpha(0.07f), 600, 0, col::amber.withAlpha(0.0f), 600, 520, true));
-        g.fillRect(0, 0, 1200, 1100);
-        g.setGradientFill(juce::ColourGradient(col::amber.withAlpha(0.05f), 600, 1260, col::amber.withAlpha(0.0f), 600, 780, true));
-        g.fillRect(0, 780, 1200, 480);
+        g.fillRect(0, 0, 1200, 612);
 
         struct T { juce::Rectangle<float> r; const char* name; };
         const T tiles[] {
@@ -225,7 +230,7 @@ public:
         const float sy = 1116.f;
         cap("GENRE", 151, sy + 68);
         cap("PRESET", 356, sy + 74);
-        cap("CLICK NAME TO BROWSE ALL 100", 593, sy + 68);
+        cap("CLICK NAME TO BROWSE ALL 120", 593, sy + 68);
         cap("MIDI IN", 777, sy + 68);
         cap("TRIGGER", 1009, sy + 84);
         g.setFont(label(15.0f, 0.14f));
@@ -270,6 +275,7 @@ private:
     LfoDisplay lfoD;
     SeqDisplay seqDisplay;
     MasterScope scope;
+    PickWindow scopePick;
     juce::Slider masterSlider;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> masterAtt;
     juce::OwnedArray<KKnob> knobs;

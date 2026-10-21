@@ -445,6 +445,7 @@ void PotatoBassProcessor::getStateInformation(juce::MemoryBlock& destData)
     auto state = apvts.copyState();
     state.setProperty("preset", currentPreset.load(), nullptr);
     state.setProperty("pattern", currentPattern.load(), nullptr);
+    state.setProperty("scope", scopeMode.load(), nullptr);
     if (auto xml = state.createXml())
         copyXmlToBinary(*xml, destData);
 }
@@ -457,6 +458,7 @@ void PotatoBassProcessor::setStateInformation(const void* data, int sizeInBytes)
             auto tree = juce::ValueTree::fromXml(*xml);
             currentPreset = juce::jlimit(0, pb::numPresets - 1, (int) tree.getProperty("preset", 1));
             currentPattern = juce::jlimit(0, pb::numSeqPatterns - 1, (int) tree.getProperty("pattern", 1));
+            scopeMode = juce::jlimit(0, 2, (int) tree.getProperty("scope", 0));
             apvts.replaceState(tree);
         }
 }

@@ -947,21 +947,43 @@ public:
     }
 };
 
-// Master output spectrum in the "Spectral Cloud" style: smoky persistence trails with a thin average line.
+// Master output display with three views: Classic spectrum, Spectral Cloud (smoky persistence trails)
+// and a scrolling Waveform (ported from Potato-Kicker), all in the orange -> yellow console palette.
 class MasterScope : public juce::Component
 {
 public:
-    MasterScope(std::function<void(float*, int)> src, std::function<double()> rate) : source(std::move(src)), getRate(std::move(rate)) {}
+    enum Mode { Classic = 0, Cloud, Waveform, NumModes };
+
+    struct Source
+    {
+        std::function<int()> writePos;
+        std::function<void(float*, int, int)> copyEnding;   // dst, n, end position
+        std::function<double()> sampleRate;
+    };
+
+    explicit MasterScope(Source s) : src(std::move(s)) {}
+
+    int getMode() const { return mode; }
+
+    void setMode(int m)
+    {
+        mode = juce::jlimit(0, (int) NumModes - 1, m);
+        staticImg = {}; cloud = {}; waveImg = {};
+        waveLastPos = -1;
+        repaint();
+    }
 
     void update(float dt)
     {
-        const double sr = juce::jmax(8000.0, getRate());
-        if (sr != bandsRate)
-            rebuildBands(sr);
         if (plot.isEmpty())
             return;
+        if (mode == Waveform) { feedWave(); repaint(); return; }
 
-        source(work.data(), size);
+        const double sr = juce::jmax(8000.0, src.sampleRate());
+        if (sr != bandsRate)
+            rebuildBands(sr);
+
+        src.copyEnding(work.data(), size, src.writePos());
         std::fill(work.begin() + size, work.end(), 0.f);
         window.multiplyWithWindowingTable(work.data(), (size_t) size);
         fft.performFrequencyOnlyForwardTransform(work.data());
@@ -989,38 +1011,46 @@ public:
                 for (int k = k0; k <= k1; ++k) { const float m = work[(size_t) k] * norm; sum += (double) (m * m); }
                 power = (float) (sum / (double) (k1 - k0 + 1));
             }
-            float db = 10.f * std::log10(power + 1.0e-14f) + 3.f * std::log2(freqs[(size_t) i] / 1000.f);
+            const float db = 10.f * std::log10(power + 1.0e-14f) + 3.f * std::log2(freqs[(size_t) i] / 1000.f);
             auto& v = avg[(size_t) i];
             v += (db - v) * (db > v ? atk : rel);
+
+            auto& pk = peak[(size_t) i];
+            auto& t = peakT[(size_t) i];
+            if (v >= pk) { pk = v; t = 1.f; }
+            else if (t > 0.f) t -= dt;
+            else pk = std::max(v, pk - 10.f * dt);
         }
 
-        const float k = 1.f - std::exp(-dt / 0.9f);
-        for (int i = 0; i < numPoints; ++i)
-            slow[(size_t) i] += (avg[(size_t) i] - slow[(size_t) i]) * k;
-
-        const int pw = (int) plot.getWidth(), ph = (int) plot.getHeight();
-        if (cloud.getWidth() != pw || cloud.getHeight() != ph)
-            cloud = juce::Image(juce::Image::ARGB, juce::jmax(1, pw), juce::jmax(1, ph), true);
-        cloud.multiplyAllAlphas(0.88f);
-        juce::Graphics g(cloud);
-        g.addTransform(juce::AffineTransform::translation(-plot.getX(), -plot.getY()));
-        const auto line = makePath(avg);
-        const juce::ColourGradient ramp(look::col::orange, plot.getX(), 0.f, look::col::yellow, plot.getRight(), 0.f, false);
-        auto stroke = [&](float alpha, float w)
+        if (mode == Cloud)
         {
-            auto gr = ramp; gr.multiplyOpacity(alpha);
-            g.setGradientFill(gr);
-            g.strokePath(line, juce::PathStrokeType(w));
-        };
-        stroke(0.07f, 9.f); stroke(0.13f, 3.5f); stroke(0.28f, 1.2f);
+            const float k = 1.f - std::exp(-dt / 0.9f);
+            for (int i = 0; i < numPoints; ++i)
+                slow[(size_t) i] += (avg[(size_t) i] - slow[(size_t) i]) * k;
+
+            const int pw = (int) plot.getWidth(), ph = (int) plot.getHeight();
+            if (cloud.getWidth() != pw || cloud.getHeight() != ph)
+                cloud = juce::Image(juce::Image::ARGB, juce::jmax(1, pw), juce::jmax(1, ph), true);
+            cloud.multiplyAllAlphas(0.88f);
+            juce::Graphics g(cloud);
+            g.addTransform(juce::AffineTransform::translation(-plot.getX(), -plot.getY()));
+            const auto line = makePath(avg, false);
+            auto stroke = [&](float alpha, float w)
+            {
+                auto gr = ramp(); gr.multiplyOpacity(alpha);
+                g.setGradientFill(gr);
+                g.strokePath(line, juce::PathStrokeType(w));
+            };
+            stroke(0.07f, 9.f); stroke(0.13f, 3.5f); stroke(0.28f, 1.2f);
+        }
         repaint();
     }
 
     void resized() override
     {
         plot = getLocalBounds().toFloat().withTrimmedLeft(8.f).withTrimmedTop(8.f).withTrimmedRight(30.f).withTrimmedBottom(18.f);
-        staticImg = {};
-        cloud = {};
+        staticImg = {}; cloud = {}; waveImg = {};
+        waveLastPos = -1;
     }
 
     void paint(juce::Graphics& g) override
@@ -1029,21 +1059,45 @@ public:
         if (!staticImg.isValid())
             buildStatic();
         g.drawImageAt(staticImg, 0, 0);
-        if (cloud.isValid())
-            g.drawImageAt(cloud, (int) plot.getX(), (int) plot.getY());
-        auto p = makePath(slow);
+
+        if (mode == Waveform)
+        {
+            drawWave(g);
+            return;
+        }
+        if (mode == Cloud)
+        {
+            if (cloud.isValid())
+                g.drawImageAt(cloud, (int) plot.getX(), (int) plot.getY());
+            auto p = makePath(slow, false);
+            juce::Graphics::ScopedSaveState s(g);
+            g.reduceClipRegion(plot.toNearestInt());
+            auto gr = ramp(); gr.multiplyOpacity(0.3f);
+            g.setGradientFill(gr); g.strokePath(p, juce::PathStrokeType(4.f));
+            g.setGradientFill(ramp()); g.strokePath(p, juce::PathStrokeType(1.2f));
+            return;
+        }
+
         juce::Graphics::ScopedSaveState s(g);
         g.reduceClipRegion(plot.toNearestInt());
-        const juce::ColourGradient ramp(look::col::orange, plot.getX(), 0.f, look::col::yellow, plot.getRight(), 0.f, false);
-        auto gr = ramp; gr.multiplyOpacity(0.3f);
-        g.setGradientFill(gr); g.strokePath(p, juce::PathStrokeType(4.f));
-        g.setGradientFill(ramp); g.strokePath(p, juce::PathStrokeType(1.2f));
+        juce::ColourGradient grad(look::col::yellow.withAlpha(0.55f), 0.f, plot.getY(), look::col::orange.withAlpha(0.03f), 0.f, plot.getBottom(), false);
+        grad.addColour(0.55, look::col::orange.withAlpha(0.22f));
+        g.setGradientFill(grad);
+        g.fillPath(makePath(avg, true));
+        const auto line = makePath(avg, false);
+        auto gr = ramp(); gr.multiplyOpacity(0.2f);
+        g.setGradientFill(gr); g.strokePath(line, juce::PathStrokeType(4.f));
+        g.setGradientFill(ramp()); g.strokePath(line, juce::PathStrokeType(1.4f));
+        g.setColour(juce::Colour((juce::uint32) 0xfffff0b8).withAlpha(0.45f));
+        g.strokePath(makePath(peak, false), juce::PathStrokeType(1.f));
     }
 
 private:
     static constexpr int order = 12, size = 1 << order, numPoints = 160;
-    static constexpr float minF = 20.f, maxF = 20000.f, topDb = 0.f, botDb = -84.f;
+    static constexpr float minF = 20.f, maxF = 20000.f, topDb = 0.f, botDb = -84.f, wavePxPerSec = 150.f;
     struct Band { float b0, b1; };
+
+    juce::ColourGradient ramp() const { return { look::col::orange, plot.getX(), 0.f, look::col::yellow, plot.getRight(), 0.f, false }; }
 
     void rebuildBands(double sr)
     {
@@ -1060,12 +1114,13 @@ private:
     float xForFreq(float f) const { return plot.getX() + plot.getWidth() * std::log(f / minF) / std::log(maxF / minF); }
     float yForDb(float db) const { return juce::jmap(juce::jlimit(botDb - 6.f, topDb + 6.f, db), botDb, topDb, plot.getBottom(), plot.getY()); }
 
-    juce::Path makePath(const std::array<float, numPoints>& a) const
+    juce::Path makePath(const std::array<float, numPoints>& a, bool closed) const
     {
         juce::Path p;
         auto pt = [&](int i) { return juce::Point<float>(xForFreq(freqs[(size_t) i]), juce::jmin(plot.getBottom(), yForDb(a[(size_t) i]))); };
         auto prev = pt(0);
-        p.startNewSubPath(prev);
+        if (closed) { p.startNewSubPath(prev.x, plot.getBottom()); p.lineTo(prev); }
+        else p.startNewSubPath(prev);
         for (int i = 1; i < numPoints; ++i)
         {
             const auto cur = pt(i);
@@ -1073,6 +1128,7 @@ private:
             prev = cur;
         }
         p.lineTo(prev);
+        if (closed) { p.lineTo(prev.x, plot.getBottom()); p.closeSubPath(); }
         return p;
     }
 
@@ -1083,40 +1139,212 @@ private:
         if (bandsRate == 0.0)
             rebuildBands(44100.0);
         const auto lineC = look::col::line;
-        for (int decade = 10; decade <= 10000; decade *= 10)
-            for (int m = 1; m <= 9; ++m)
-            {
-                const float f = (float) (decade * m);
-                if (f < minF || f > maxF) continue;
-                g.setColour(lineC.withAlpha(m == 1 ? 0.20f : 0.08f));
-                g.fillRect(std::round(xForFreq(f)), plot.getY(), 1.f, plot.getHeight());
-            }
         g.setFont(look::mono(10.f));
-        for (int db = 0; db >= (int) botDb; db -= 12)
+
+        if (mode == Waveform)
         {
-            const float y = std::round(yForDb((float) db));
-            g.setColour(lineC.withAlpha(db == 0 ? 0.28f : 0.12f));
-            g.fillRect(plot.getX(), y, plot.getWidth(), 1.f);
-            g.setColour(theme::text.withAlpha(0.6f));
-            g.drawText(juce::String(db), (int) plot.getRight() + 3, (int) y - 6, 26, 12, juce::Justification::centredLeft, false);
+            const float cy = plot.getCentreY(), half = plot.getHeight() * 0.47f;
+            for (int db : { 0, -6, -12, -24 })
+            {
+                const float off = half * std::pow(std::pow(10.f, (float) db / 20.f), 0.75f);
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    const float y = std::round(cy + (float) side * off);
+                    g.setColour(juce::Colours::white.withAlpha(db == 0 ? 0.10f : 0.06f));
+                    g.fillRect(plot.getX(), y, plot.getWidth(), 1.f);
+                    g.setColour(theme::text.withAlpha(0.5f));
+                    g.drawText(juce::String(db), (int) plot.getRight() + 3, (int) y - 6, 26, 12, juce::Justification::centredLeft, false);
+                }
+            }
+            for (int s = 0; s <= 2; ++s)
+            {
+                const float x = plot.getRight() - (float) s * wavePxPerSec;
+                if (x < plot.getX()) break;
+                g.setColour(juce::Colours::white.withAlpha(0.05f));
+                g.fillRect(std::round(x), plot.getY(), 1.f, plot.getHeight());
+                g.setColour(theme::text.withAlpha(0.5f));
+                g.drawText(s == 0 ? juce::String("now") : "-" + juce::String(s) + "s", (int) x - 40, (int) plot.getBottom() + 4, 40, 12, juce::Justification::centredRight, false);
+            }
         }
-        const float labF[] { 50.f, 100.f, 200.f, 500.f, 1000.f, 2000.f, 5000.f, 10000.f };
-        const char* labT[] { "50", "100", "200", "500", "1K", "2K", "5K", "10K" };
-        g.setColour(theme::text.withAlpha(0.6f));
-        for (int i = 0; i < 8; ++i)
-            g.drawText(labT[i], (int) xForFreq(labF[i]) - 16, (int) plot.getBottom() + 4, 32, 12, juce::Justification::centred, false);
+        else
+        {
+            const bool cl = mode == Cloud;
+            for (int decade = 10; decade <= 10000; decade *= 10)
+                for (int m = 1; m <= 9; ++m)
+                {
+                    const float f = (float) (decade * m);
+                    if (f < minF || f > maxF) continue;
+                    g.setColour(lineC.withAlpha(m == 1 ? (cl ? 0.20f : 0.14f) : (cl ? 0.08f : 0.05f)));
+                    g.fillRect(std::round(xForFreq(f)), plot.getY(), 1.f, plot.getHeight());
+                }
+            for (int db = 0; db >= (int) botDb; db -= 12)
+            {
+                const float y = std::round(yForDb((float) db));
+                g.setColour(lineC.withAlpha(db == 0 ? 0.28f : 0.12f));
+                g.fillRect(plot.getX(), y, plot.getWidth(), 1.f);
+                g.setColour(theme::text.withAlpha(0.6f));
+                g.drawText(juce::String(db), (int) plot.getRight() + 3, (int) y - 6, 26, 12, juce::Justification::centredLeft, false);
+            }
+            const float labF[] { 50.f, 100.f, 200.f, 500.f, 1000.f, 2000.f, 5000.f, 10000.f };
+            const char* labT[] { "50", "100", "200", "500", "1K", "2K", "5K", "10K" };
+            g.setColour(theme::text.withAlpha(0.6f));
+            for (int i = 0; i < 8; ++i)
+                g.drawText(labT[i], (int) xForFreq(labF[i]) - 16, (int) plot.getBottom() + 4, 32, 12, juce::Justification::centred, false);
+        }
         g.setColour(lineC.withAlpha(0.30f));
         g.drawRect(plot, 1.f);
     }
 
-    std::function<void(float*, int)> source;
-    std::function<double()> getRate;
+    // Scrolling output in the Potato-Kicker waveform style: each 1-px column is coloured by how the energy
+    // splits across six bands, kicks pull the lows toward ember red, mirrored around a glowing horizon.
+    void feedWave()
+    {
+        const int pos = src.writePos();
+        const int w = juce::jmax(2, (int) plot.getWidth()), h = juce::jmax(2, (int) plot.getHeight());
+        if (!waveImg.isValid())
+            waveImg = juce::Image(juce::Image::ARGB, w, h, true, juce::SoftwareImageType());
+        if (waveLastPos < 0) waveLastPos = pos;
+        int n = (pos - waveLastPos) & 8191;
+        waveLastPos = pos;
+        n = juce::jmin(n, 4096);
+        if (n <= 0) return;
+        waveBuf.resize((size_t) n);
+        src.copyEnding(waveBuf.data(), n, pos);
+
+        const double srate = juce::jmax(8000.0, src.sampleRate());
+        const int samplesPerCol = juce::jmax(1, (int) std::round(srate / (double) wavePxPerSec));
+        auto pole = [srate](float hz) { return std::exp(-juce::MathConstants<float>::twoPi * hz / (float) srate); };
+        const float c[5] { pole(60.f), pole(250.f), pole(500.f), pole(2000.f), pole(6000.f) };
+        auto envCoef = [srate](float secs) { return std::exp(-1.f / ((float) srate * secs)); };
+        const float kFastA = envCoef(0.001f), kFastR = envCoef(0.030f), kSlowA = envCoef(0.060f), kSlowR = envCoef(0.300f), kHoldDecay = envCoef(0.10f);
+        const float cy = (float) h * 0.5f, half = (float) h * 0.47f;
+
+        static const juce::Colour bandCol[6] { juce::Colour((juce::uint32) 0xffd02800), juce::Colour((juce::uint32) 0xffff5a00), juce::Colour((juce::uint32) 0xffff8a12),
+                                               juce::Colour((juce::uint32) 0xffffb028), juce::Colour((juce::uint32) 0xffffd84a), juce::Colour((juce::uint32) 0xfffff4b0) };
+        static const juce::Colour kickCol((juce::uint32) 0xff7a1500), edgeCol((juce::uint32) 0xffffe066);
+        static const float gain[6] { 1.f, 1.f, 1.3f, 1.6f, 2.2f, 3.f };
+
+        for (int i = 0; i < n; ++i)
+        {
+            const float x = waveBuf[(size_t) i];
+            float lp[5];
+            for (int k = 0; k < 5; ++k)
+            {
+                auto& s1 = waveLp[(size_t) (k * 2)];
+                auto& s2 = waveLp[(size_t) (k * 2 + 1)];
+                s1 = x + c[k] * (s1 - x);
+                s2 = s1 + c[k] * (s2 - s1);
+                lp[k] = s2;
+            }
+            const float band[6] { lp[0], lp[1] - lp[0], lp[2] - lp[1], lp[3] - lp[2], lp[4] - lp[3], x - lp[4] };
+            for (size_t k = 0; k < 6; ++k) wBand[k] += band[k] * band[k];
+
+            const float lo = std::abs(lp[1]);
+            kickFast = lo + (lo > kickFast ? kFastA : kFastR) * (kickFast - lo);
+            kickSlow = lo + (lo > kickSlow ? kSlowA : kSlowR) * (kickSlow - lo);
+            const float kickness = juce::jlimit(0.f, 1.f, (kickFast - 1.25f * kickSlow) / (kickFast + 1.0e-6f) * 3.f);
+            kickHold = juce::jmax(kickness, kickHold * kHoldDecay);
+            wKick = juce::jmax(wKick, kickHold);
+            wPeak = juce::jmax(wPeak, std::abs(x));
+
+            if (++waveColCount < samplesPerCol) continue;
+
+            float e[6], sum = 1.0e-9f, ms = 0.f;
+            for (size_t k = 0; k < 6; ++k)
+            {
+                ms += wBand[k];
+                e[k] = std::sqrt(wBand[k] / (float) samplesPerCol) * gain[k];
+                sum += e[k];
+            }
+            for (size_t k = 0; k < 6; ++k) waveShare[k] += (e[k] / sum - waveShare[k]) * 0.35f;
+            waveKickSm += (wKick - waveKickSm) * 0.5f;
+
+            const float rms = std::sqrt(ms / (float) samplesPerCol);
+            auto heightOf = [&](float amp) { return half * std::pow(juce::jlimit(0.f, 1.f, amp), 0.75f); };
+            const float body = juce::jmax(1.f, heightOf(rms * 2.2f));
+            const float halo = juce::jmax(body, heightOf(wPeak));
+
+            juce::ColourGradient grad;
+            grad.isRadial = false;
+            float acc = 0.f;
+            bool first = true;
+            for (int k = 5; k >= 0; --k)
+            {
+                const float sh = waveShare[(size_t) k];
+                auto cc = bandCol[k].brighter(0.2f);
+                if (k <= 1) cc = cc.interpolatedWith(kickCol, juce::jlimit(0.f, 0.75f, waveKickSm * 0.75f));
+                const float p = juce::jlimit(0.f, 1.f, acc + sh * 0.5f);
+                if (first) { grad.addColour(0.0, cc.brighter(0.5f)); first = false; }
+                if (p > 0.f && p < 1.f) grad.addColour((double) p, cc);
+                acc += sh;
+            }
+            const auto outer = bandCol[0].interpolatedWith(kickCol, juce::jlimit(0.f, 0.75f, waveKickSm * 0.75f));
+            grad.addColour(1.0, outer.interpolatedWith(edgeCol, 0.35f));
+
+            waveImg.moveImageSection(0, 0, 1, 0, w - 1, h);
+            waveImg.clear({ w - 1, 0, 1, h });
+            juce::Graphics gi(waveImg);
+            const float xc = (float) (w - 1);
+            for (int side = -1; side <= 1; side += 2)
+            {
+                auto gr = grad;
+                gr.point1 = { xc, cy };
+                gr.point2 = { xc, cy + (float) side * body };
+                gi.setGradientFill(gr);
+                gi.fillRect(xc, side < 0 ? cy - body : cy, 1.f, body);
+                if (halo > body + 0.5f)
+                {
+                    gi.setGradientFill(juce::ColourGradient(edgeCol.withAlpha(0.6f), xc, cy + (float) side * body, edgeCol.withAlpha(0.f), xc, cy + (float) side * halo, false));
+                    gi.fillRect(xc, side < 0 ? cy - halo : cy + body, 1.f, halo - body);
+                }
+            }
+            waveColCount = 0;
+            wPeak = wKick = 0.f;
+            wBand.fill(0.f);
+        }
+    }
+
+    void drawWave(juce::Graphics& g)
+    {
+        const int px = (int) plot.getX(), py = (int) plot.getY();
+        if (waveImg.isValid())
+        {
+            g.drawImageAt(waveImg, px, py);
+            g.setOpacity(0.35f);
+            g.drawImageAt(waveImg, px - 1, py);
+            g.drawImageAt(waveImg, px + 1, py);
+            g.drawImageAt(waveImg, px, py - 1);
+            g.drawImageAt(waveImg, px, py + 1);
+            g.setOpacity(1.f);
+        }
+        const float x0 = plot.getX(), gw = plot.getWidth(), cy = plot.getCentreY();
+        juce::ColourGradient hz(look::col::orange.withAlpha(0.f), x0, cy, look::col::yellow.withAlpha(0.f), x0 + gw, cy, false);
+        hz.addColour(0.20, look::col::orange.withAlpha(0.25f));
+        hz.addColour(0.50, juce::Colour((juce::uint32) 0xfffff0b8).withAlpha(0.45f));
+        hz.addColour(0.80, look::col::yellow.withAlpha(0.28f));
+        g.setGradientFill(hz); g.fillRect(x0, cy - 3.f, gw, 7.f);
+        hz.multiplyOpacity(1.8f);
+        g.setGradientFill(hz); g.fillRect(x0, cy, gw, 1.f);
+
+        const float x = plot.getRight() - 1.f;
+        g.setColour(look::col::yellow.withAlpha(0.25f)); g.fillRect(x - 3.f, plot.getY(), 6.f, plot.getHeight());
+        g.setColour(look::col::yellow.brighter(0.4f));   g.fillRect(x, plot.getY(), 1.f, plot.getHeight());
+    }
+
+    Source src;
+    int mode = Classic;
     juce::dsp::FFT fft { order };
     juce::dsp::WindowingFunction<float> window { (size_t) size, juce::dsp::WindowingFunction<float>::blackmanHarris };
     std::array<float, size * 2> work {};
     std::array<Band, numPoints> bands {};
-    std::array<float, numPoints> freqs {}, avg {}, slow {};
+    std::array<float, numPoints> freqs {}, avg {}, slow {}, peak {}, peakT {};
     double bandsRate = 0.0;
-    juce::Image cloud, staticImg;
+    juce::Image cloud, staticImg, waveImg;
     juce::Rectangle<float> plot;
+
+    std::vector<float> waveBuf;
+    int waveLastPos = -1, waveColCount = 0;
+    std::array<float, 10> waveLp {};
+    std::array<float, 6> wBand {}, waveShare { 1.f / 6, 1.f / 6, 1.f / 6, 1.f / 6, 1.f / 6, 1.f / 6 };
+    float kickFast = 0.f, kickSlow = 0.f, kickHold = 0.f, wKick = 0.f, wPeak = 0.f, waveKickSm = 0.f;
 };
