@@ -266,15 +266,21 @@ void PotatoBassProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
     const float depth = lOn->load() > 0.5f ? lDepth->load() : 0.f;
     const bool lfoOn = depth > 0.0005f && n <= (int) lfoBuf.size();
     bus.lfo = nullptr;
+    if (!lfoOn)
+        lfoPrimed = false;
     if (lfoOn)
     {
         const int shapeIdx = (int) lShape->load();
         const float expo = lfoCurveExp(lCurve->load());
         const double lfoBeats = syncBeats[(int) lRate->load()];
+        const float slew = 1.f - std::exp(-1.f / (0.001f * (float) sr));
         for (int i = 0; i < n; ++i)
         {
             const double ph = (p0 + i * bpb) / lfoBeats;
-            lfoBuf[(size_t) i] = lfoShape(shapeIdx, (float) (ph - std::floor(ph)), expo);
+            const float raw = lfoShape(shapeIdx, (float) (ph - std::floor(ph)), expo);
+            if (!lfoPrimed) { lfoState = raw; lfoPrimed = true; }
+            lfoState += slew * (raw - lfoState);
+            lfoBuf[(size_t) i] = lfoState;
         }
 
         if ((int) lTarget->load() == 1)
@@ -308,13 +314,16 @@ void PotatoBassProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
         float* L = buffer.getWritePointer(0);
         float* R = buffer.getWritePointer(1);
         float sumSq = 0.f;
+        int w = scopeWrite.load(std::memory_order_relaxed);
         for (int i = 0; i < n; ++i)
         {
             const float g = masterSm.getNextValue();
             L[i] *= g;
             R[i] *= g;
             sumSq += L[i] * L[i];
+            scopeBuf[(size_t) (w++ & (scopeSize - 1))] = 0.5f * (L[i] + R[i]);
         }
+        scopeWrite.store(w & (scopeSize - 1), std::memory_order_release);
         meterRms = std::sqrt(sumSq / (float) juce::jmax(1, n));
     }
     heldNotes = heldCount;

@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
+#include <array>
 #include <atomic>
 #include <vector>
 #include "Params.h"
@@ -48,6 +49,13 @@ public:
     juce::MidiKeyboardState keyboardState;
     std::atomic<int> currentPreset { 1 };
     std::atomic<float> meterRms { 0.f };
+    static constexpr int scopeSize = 8192;
+    void copyScope(float* dst, int n) const
+    {
+        const int pos = scopeWrite.load(std::memory_order_acquire);
+        for (int i = 0; i < n; ++i)
+            dst[i] = scopeBuf[(size_t) ((pos - n + i) & (scopeSize - 1))];
+    }
     std::atomic<int> heldNotes { 0 };
     std::atomic<unsigned> noteOnCounter { 0 };
 
@@ -66,6 +74,10 @@ private:
     int held[128] {}, heldCount = 0, seqNote = -1;
     long long lastAbsStep = -1;
     double freePpq = 0.0;
+    std::array<float, scopeSize> scopeBuf {};
+    std::atomic<int> scopeWrite { 0 };
+    float lfoState = 1.f;
+    bool lfoPrimed = false;
     juce::dsp::Oversampling<float> oversampling { 2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, false };
     juce::SmoothedValue<float> driveSm, outSm, makeupSm, mixSm, masterSm;
     std::vector<float> dgBuf, ogBuf;

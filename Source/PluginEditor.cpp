@@ -11,7 +11,8 @@ public:
         : proc(p),
           wave1(p.wavetables, p.apvts, ID::osc1Table), wave2(p.wavetables, p.apvts, ID::osc2Table),
           ampD(p.apvts), filtD(p.apvts), distD(p.apvts), compD(p.apvts, p.grMeter), lfoD(p.apvts),
-          seqDisplay(p.apvts, p.seqStep)
+          seqDisplay(p.apvts, p.seqStep),
+          scope([&p](float* d, int n) { p.copyScope(d, n); }, [&p] { return p.getSampleRate(); })
     {
         auto& s = p.apvts;
         auto prm = [&s](const char* id) -> juce::RangedAudioParameter& { return *s.getParameter(id); };
@@ -51,9 +52,16 @@ public:
             knob(o == 0 ? ID::osc1Level : ID::osc2Level, "LEVEL", 84, ox + 309, 200);
             power(o == 0 ? ID::o1On : ID::o2On, o == 0 ? "Oscillator 1 on" : "Oscillator 2 on", { ox, 44, 380, 276 });
         }
-        addAndMakeVisible(vu);
-        vu.setBounds(800, 94, 250, 150);
-        knob(ID::master, "MASTER", 100, 1118, 112);
+        place(scope, { 802, 80, 372, 170 });
+        masterSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+        masterSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 78, 22);
+        masterSlider.setColour(juce::Slider::textBoxTextColourId, col::yellow);
+        masterSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+        masterSlider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
+        masterSlider.setMouseDragSensitivity(220);
+        masterAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(s, ID::master, masterSlider);
+        addAndMakeVisible(masterSlider);
+        masterSlider.setBounds(884, 268, 290, 38);
 
         // row 2: amp envelope, filter, distortion
         place(ampD, { 24, 362, 362, 138 });
@@ -167,6 +175,7 @@ public:
         badgeLevel = active ? 1.0f : badgeLevel * 0.88f;
         badge.setActivity(badgeLevel);
         trigger.setLit(active);
+        scope.update(1.f / 30.f);
         vu.setLevel(proc.meterRms.load());
         levelLights.setLevel(vu.getLevel());
         patWin.repaint();
@@ -179,13 +188,6 @@ public:
         g.fillRect(0, 0, 1200, 1100);
         g.setGradientFill(juce::ColourGradient(col::amber.withAlpha(0.05f), 600, 1260, col::amber.withAlpha(0.0f), 600, 780, true));
         g.fillRect(0, 780, 1200, 480);
-
-        // faint hairline frame and tick marks along the header rule
-        g.setColour(col::line.withAlpha(0.10f));
-        g.drawRoundedRectangle(3.5f, 3.5f, 1193.f, 1253.f, 12.f, 1.f);
-        g.setColour(col::line.withAlpha(0.22f));
-        for (int x = 16; x <= 1184; x += 16)
-            g.fillRect((float) x, (x % 64 == 0) ? 33.f : 36.f, 1.f, (x % 64 == 0) ? 5.f : 2.f);
 
         struct T { juce::Rectangle<float> r; const char* name; };
         const T tiles[] {
@@ -200,11 +202,11 @@ public:
 
         {
             const int old = rampMode();
-            rampMode() = 1;
+            rampMode() = 0;
             theme::drawTile(g, { 12, 904, 1176, 200 });
             theme::section(g, "SEQUENCER", 30, 910, 1040);
             g.setFont(label(15.0f, 0.14f));
-            auto cap = [&](const juce::String& s, float cx, float y) { glowText(g, s, juce::Rectangle<float>(cx - 80, y, 160, 17), juce::Justification::centred, juce::Colour((juce::uint32) 0xffc2b4ff), 0.22f); };
+            auto cap = [&](const juce::String& s, float cx, float y) { glowText(g, s, juce::Rectangle<float>(cx - 80, y, 160, 17), juce::Justification::centred, col::ink, 0.22f); };
             cap("PATTERN", 169, 978);
             cap("RATE", 395, 978);
             cap("DIRECTION", 527, 978);
@@ -214,13 +216,9 @@ public:
 
         for (auto& r : bezels)
             theme::paintBezel(g, r.toFloat().expanded(3.f));
-        theme::paintBezel(g, juce::Rectangle<float>(797.f, 91.f, 256.f, 156.f));
 
         g.setFont(label(29.0f, 0.38f, true));
         glowTextRamp(g, "POTATO BASS", juce::Rectangle<float>(380, 4, 440, 32), juce::Justification::centred, 0.35f);
-        g.setFont(mono(12.0f)); g.setColour(juce::Colour((juce::uint32) 0xffb98c62));
-        g.drawText(juce::CharPointer_UTF8("EDM BASS SYNTH  \xc2\xb7  100 PRESETS"), juce::Rectangle<float>(16, 12, 300, 16), juce::Justification::left, false);
-        g.drawText(juce::CharPointer_UTF8("VST3  \xc2\xb7  WIN"), juce::Rectangle<float>(884, 12, 300, 16), juce::Justification::right, false);
 
         g.setFont(label(15.0f, 0.14f));
         auto cap = [&](const juce::String& s, float cx, float y) { glowText(g, s, juce::Rectangle<float>(cx - 120, y, 240, 17), juce::Justification::centred, col::ink, 0.22f); };
@@ -230,6 +228,8 @@ public:
         cap("CLICK NAME TO BROWSE ALL 100", 593, sy + 68);
         cap("MIDI IN", 777, sy + 68);
         cap("TRIGGER", 1009, sy + 84);
+        g.setFont(label(15.0f, 0.14f));
+        glowText(g, "MASTER", juce::Rectangle<float>(806, 277, 76, 17), juce::Justification::centredLeft, col::ink, 0.22f);
     }
 
     void paintOverChildren(juce::Graphics& g) override
@@ -269,6 +269,9 @@ private:
     CompressorDisplay compD;
     LfoDisplay lfoD;
     SeqDisplay seqDisplay;
+    MasterScope scope;
+    juce::Slider masterSlider;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> masterAtt;
     juce::OwnedArray<KKnob> knobs;
     juce::OwnedArray<ChoiceWindow> choices;
     juce::OwnedArray<PowerToggle> leds;

@@ -443,10 +443,10 @@ public:
     void paint (Graphics& g) override
     {
         const int oldMode = rampMode();
-        rampMode() = seqPal ? 1 : 0;
+        rampMode() = 0;
         const float w = (float) getWidth();
         g.setFont (label (16.0f, 0.1f));
-        glowText (g, name, Rectangle<float> (0, 0, w, 17), Justification::centred, seqPal ? Colour (0xffc2b4ff) : col::ink, 0.22f);
+        glowText (g, name, Rectangle<float> (0, 0, w, 17), Justification::centred, col::ink, 0.22f);
         drawLitKnob (g, { w * 0.5f, 18.0f + size * 0.5f }, size, param.getValue(), size >= 84.0f);
         const Colour valueCol = ramp (param.getValue()).brighter (0.4f);
         g.setColour (dragging ? valueCol : (seqPal ? Colour (0xff9a8ed8) : Colour (0xffb98c62))); g.setFont (mono (12.5f));
@@ -525,11 +525,11 @@ public:
         const int cur = getCurrent ? getCurrent() : 0;
         const String t = cur >= 0 && cur < items.size() ? items[cur].toUpperCase() : String();
         g.setFont (mono (15.0f));
-        glowText (g, t, r.withTrimmedLeft (10).withTrimmedRight (22), Justification::centredLeft, seqStyle ? Colour (0xffc2b4ff) : col::yellow, 0.25f);
+        glowText (g, t, r.withTrimmedLeft (10).withTrimmedRight (22), Justification::centredLeft, col::yellow, 0.25f);
         Path tri;
         const float ax = r.getRight() - 12.0f, ay = r.getCentreY();
         tri.addTriangle (ax - 4.5f, ay - 2.5f, ax + 4.5f, ay - 2.5f, ax, ay + 3.5f);
-        g.setColour (seqStyle ? Colour (0xff8a2fe0) : col::amber);
+        g.setColour (col::amber);
         g.fillPath (tri);
     }
 
@@ -621,9 +621,9 @@ public:
     {
         const auto b = getLocalBounds().toFloat();
         g.setColour (Colour (0xff0b0908)); g.fillRoundedRectangle (b.reduced (1.0f), 6.0f);
-        g.setColour ((seqStyle ? Colour (0xff6a4cff) : col::line).withAlpha (hover ? 0.8f : 0.4f)); g.drawRoundedRectangle (b.reduced (1.5f), 6.0f, 1.0f);
+        g.setColour (col::line.withAlpha (hover ? 0.8f : 0.4f)); g.drawRoundedRectangle (b.reduced (1.5f), 6.0f, 1.0f);
         drawLed (g, Rectangle<float> (16.0f, 16.0f).withCentre ({ 17.0f, b.getCentreY() }), on);
-        const Colour lit = seqStyle ? Colour (0xffc2b4ff) : col::yellow, dim (0xff6e5238);
+        const Colour lit = col::yellow, dim (0xff6e5238);
         g.setFont (label (16.0f, 0.12f, true));
         auto word = [&] (const String& s, Rectangle<float> r, bool active)
         {
